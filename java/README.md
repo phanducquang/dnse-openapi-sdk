@@ -1,6 +1,6 @@
 # DNSE OpenAPI Java SDK
 
-Java 17 SDK for DNSE OpenAPI. The first milestone focuses on WebSocket parity with the Python SDK.
+Java 17 SDK for DNSE OpenAPI. The current milestone focuses on WebSocket parity with the Python SDK before REST support is added.
 
 ## Current scope
 
@@ -9,27 +9,24 @@ Java 17 SDK for DNSE OpenAPI. The first milestone focuses on WebSocket parity wi
 - JSON and MessagePack codecs
 - OkHttp WebSocket transport
 - connection/authentication state machine
-- trade, quote, OHLC and security-definition typed events
-- subscription/unsubscription helpers
-- per-symbol ordered dispatch using striped single-thread executors
+- typed market/private events: Trade, TradeExtra, Quote, OHLC, ExpectedPrice, SecurityDefinition, ForeignInvestor, MarketIndex, EstimatedMarketIndex, IndexInfluence, Order, Position, Session and AccountUpdate
+- typed subscription/unsubscription helpers for market-data and private channels
+- per-symbol ordered dispatch with bounded queues and blocking backpressure
 - application heartbeat
 - exponential-backoff reconnect, re-authentication and subscription restore
+- MockWebServer protocol integration tests
+- Python-generated MessagePack compatibility fixture tests
 
-## Build
-
-```bash
-cd java
-./gradlew test
-```
-
-If the Gradle wrapper is not committed yet, use an installed Gradle 8.x:
+## Build and test
 
 ```bash
 cd java
 gradle test
 ```
 
-## Example
+The `Java SDK` GitHub Actions workflow runs the same test suite on Java 17 for pushes and pull requests that change the Java module.
+
+## Basic usage
 
 ```java
 DnseWebSocketConfig config = DnseWebSocketConfig.builder()
@@ -40,14 +37,72 @@ DnseWebSocketConfig config = DnseWebSocketConfig.builder()
 
 try (DnseWebSocketClient client = new DnseWebSocketClient(config)) {
     client.onTrade(System.out::println);
+    client.onQuote(System.out::println);
     client.onError(Throwable::printStackTrace);
-    client.connect().join();
-    client.subscribeTrades(List.of("FPT", "VNM"), "G1");
 
-    Thread.currentThread().join();
+    client.connect().join();
+
+    Subscription trades = client.subscribeTrades(List.of("FPT", "VNM"), "G1");
+    Subscription quotes = client.subscribeQuotes(List.of("FPT", "VNM"), "G1");
+
+    // Later:
+    trades.unsubscribe().join();
+    quotes.unsubscribe().join();
 }
 ```
 
+If no board is supplied, the SDK can subscribe across the Python SDK default boards:
+
+```java
+List<Subscription> subscriptions = client.subscribeTrades(List.of("FPT"));
+```
+
+Additional helpers include:
+
+```text
+subscribeTradeExtra
+subscribeExpectedPrice
+subscribeSecurityDefinitions
+subscribeOhlc
+subscribeOhlcClosed
+subscribeForeignTrading
+subscribeMarketIndex
+subscribeEstimatedMarketIndex
+subscribeMarketIndexInfluence
+subscribeSession
+subscribeOrderEvents
+subscribeBrokerOrderEvents
+subscribePositionEvents
+subscribeBrokerPositionEvents
+subscribeOrders
+subscribePositions
+subscribeAccount
+```
+
+## Protocol validation
+
+The automated suite verifies:
+
+- welcome -> authentication -> subscription -> typed event dispatch
+- abnormal server close -> reconnect -> re-authentication -> subscription restore
+- all message type codes currently mapped by the Python SDK
+- same-symbol ordering under queue pressure
+- partial unsubscribe state used for reconnect
+- JSON and Python-generated MessagePack payload compatibility
+
+## Live smoke test
+
+A separate `Java SDK Live Smoke` workflow is available through **Actions -> Java SDK Live Smoke -> Run workflow**. It is manual only and is not executed for normal pull requests.
+
+Configure these repository secrets before running it:
+
+```text
+DNSE_API_KEY
+DNSE_API_SECRET
+```
+
+Optional workflow inputs select the symbol and board. The smoke test connects to `wss://ws-openapi.dnse.com.vn`, authenticates and sends a market-data subscription. Credentials and signatures are not logged by the test.
+
 ## Compatibility source
 
-Protocol behavior is ported from `python/dnse/websocket` in this repository. REST support is intentionally deferred until the WebSocket implementation reaches parity.
+Protocol behavior is ported from `python/dnse/websocket` in this repository. REST support remains intentionally deferred until the WebSocket implementation reaches protocol and live-runtime parity.
