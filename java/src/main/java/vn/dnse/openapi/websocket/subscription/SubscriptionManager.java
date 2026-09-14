@@ -23,6 +23,18 @@ public final class SubscriptionManager {
         subscriptions.remove(channel);
     }
 
+    public void removeSymbols(String channel, List<String> symbols) {
+        subscriptions.computeIfPresent(channel, (ignored, current) -> {
+            if (symbols.isEmpty() || current.symbols().isEmpty()) {
+                return null;
+            }
+
+            List<String> remaining = new ArrayList<>(current.symbols());
+            remaining.removeAll(symbols);
+            return remaining.isEmpty() ? null : new Entry(channel, remaining);
+        });
+    }
+
     public Collection<Entry> snapshot() {
         return new ArrayList<>(subscriptions.values());
     }
