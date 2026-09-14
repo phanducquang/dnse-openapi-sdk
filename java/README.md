@@ -92,16 +92,34 @@ The automated suite verifies:
 
 ## Live smoke test
 
-A separate `Java SDK Live Smoke` workflow is available through **Actions -> Java SDK Live Smoke -> Run workflow**. It is manual only and is not executed for normal pull requests.
+The final validation gate uses real DNSE credentials and is opt-in only. Never commit credentials into the repository.
 
-Configure these repository secrets before running it:
+Before merging the WebSocket implementation, the live smoke test can be run locally from the feature branch:
+
+```bash
+cd java
+DNSE_LIVE_TEST=true \
+DNSE_API_KEY='<your-api-key>' \
+DNSE_API_SECRET='<your-api-secret>' \
+gradle test --tests vn.dnse.openapi.websocket.DnseWebSocketLiveSmokeTest --stacktrace
+```
+
+Optional environment variables:
+
+```text
+DNSE_WS_BASE_URL   default: wss://ws-openapi.dnse.com.vn
+DNSE_TEST_SYMBOL   default: FPT
+DNSE_TEST_BOARD    default: G1
+```
+
+A separate `Java SDK Live Smoke` workflow is also included. Once that workflow is available on the repository default branch, it can be started manually through **Actions -> Java SDK Live Smoke -> Run workflow** using repository secrets:
 
 ```text
 DNSE_API_KEY
 DNSE_API_SECRET
 ```
 
-Optional workflow inputs select the symbol and board. The smoke test connects to `wss://ws-openapi.dnse.com.vn`, authenticates and sends a market-data subscription. Credentials and signatures are not logged by the test.
+The smoke test connects, authenticates and sends a market-data subscription. Credentials and signatures are not logged by the test.
 
 ## Compatibility source
 
