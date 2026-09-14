@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.msgpack.jackson.dataformat.MessagePackFactory;
 import vn.dnse.openapi.websocket.exception.DnseEncodingException;
 
+/** MessagePack implementation of {@link MessageCodec} for lower bandwidth realtime feeds. */
 public final class MessagePackCodec implements MessageCodec {
+    /** Jackson mapper configured with the MessagePack binary factory. */
     private final ObjectMapper mapper = new ObjectMapper(new MessagePackFactory());
 
+    /** {@inheritDoc} */
     @Override
     public byte[] encode(Object value) {
         try {
@@ -17,6 +20,7 @@ public final class MessagePackCodec implements MessageCodec {
         }
     }
 
+    /** {@inheritDoc} */
     @Override
     public JsonNode decode(byte[] payload) {
         try {
