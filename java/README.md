@@ -26,6 +26,55 @@ gradle test
 
 The `Java SDK` GitHub Actions workflow runs the same test suite on Java 17 for pushes and pull requests that change the Java module. The live smoke test is guarded by `DNSE_LIVE_TEST=true`, so it is skipped during normal CI.
 
+## Run the realtime market-data example
+
+The executable example lives in a dedicated `example` source set, so it is not packaged into the SDK JAR. The normal test task also compiles the example to keep it validated by CI.
+
+Configure your DNSE credentials as environment variables:
+
+```bash
+cd java
+
+export DNSE_API_KEY='<your-api-key>'
+export DNSE_API_SECRET='<your-api-secret>'
+
+gradle run
+```
+
+By default the example connects to `wss://ws-openapi.dnse.com.vn`, authenticates, subscribes to `FPT` trades on board `G1`, then prints realtime trades until you press `Ctrl+C`.
+
+Example output:
+
+```text
+Connecting to wss://ws-openapi.dnse.com.vn using json...
+Connected and authenticated. sessionId=...
+Subscribed to trades. symbols=[FPT] board=G1
+Waiting for realtime trades. Press Ctrl+C to stop.
+[2026-09-14T09:00:00Z] TRADE symbol=FPT board=G1 price=100000 quantity=100 totalVolume=123456 time=...
+```
+
+Optional environment variables:
+
+```text
+DNSE_WS_BASE_URL   default: wss://ws-openapi.dnse.com.vn
+DNSE_SYMBOLS       default: FPT; comma-separated, for example FPT,VNM,HPG
+DNSE_BOARD         default: G1
+DNSE_ENCODING      default: JSON; accepted values: JSON, MSGPACK
+```
+
+For compatibility with the live smoke test, `DNSE_TEST_SYMBOL` and `DNSE_TEST_BOARD` are also accepted as fallbacks when `DNSE_SYMBOLS` and `DNSE_BOARD` are not set.
+
+For example:
+
+```bash
+DNSE_API_KEY='<your-api-key>' \
+DNSE_API_SECRET='<your-api-secret>' \
+DNSE_SYMBOLS='FPT,VNM,HPG' \
+DNSE_BOARD='G1' \
+DNSE_ENCODING='JSON' \
+gradle run
+```
+
 ## Basic usage
 
 ```java
