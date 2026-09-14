@@ -18,11 +18,26 @@ java {
     withJavadocJar()
 }
 
+sourceSets {
+    example {
+        java.srcDir 'src/example/java'
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
+}
+
+configurations {
+    exampleImplementation.extendsFrom implementation
+    exampleRuntimeOnly.extendsFrom runtimeOnly
+}
+
 dependencies {
     api 'com.squareup.okhttp3:okhttp:4.12.0'
     api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
     implementation 'org.msgpack:jackson-dataformat-msgpack:0.9.9'
     implementation 'org.slf4j:slf4j-api:2.0.16'
+
+    exampleRuntimeOnly 'org.slf4j:slf4j-simple:2.0.16'
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -31,7 +46,17 @@ dependencies {
 }
 
 tasks.named('test') {
+    dependsOn tasks.named(sourceSets.example.classesTaskName)
     useJUnitPlatform()
+}
+
+tasks.register('run', JavaExec) {
+    group = 'application'
+    description = 'Run the DNSE realtime market-data WebSocket example'
+    dependsOn tasks.named(sourceSets.example.classesTaskName)
+    classpath = sourceSets.example.runtimeClasspath
+    mainClass = 'vn.dnse.openapi.examples.MarketDataExample'
+    standardInput = System.in
 }
 
 publishing {
