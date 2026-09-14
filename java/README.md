@@ -24,7 +24,7 @@ cd java
 gradle test
 ```
 
-The `Java SDK` GitHub Actions workflow runs the same test suite on Java 17 for pushes and pull requests that change the Java module.
+The `Java SDK` GitHub Actions workflow runs the same test suite on Java 17 for pushes and pull requests that change the Java module. The live smoke test is guarded by `DNSE_LIVE_TEST=true`, so it is skipped during normal CI.
 
 ## Basic usage
 
@@ -89,12 +89,13 @@ The automated suite verifies:
 - same-symbol ordering under queue pressure
 - partial unsubscribe state used for reconnect
 - JSON and Python-generated MessagePack payload compatibility
+- graceful WebSocket close handshake
 
 ## Live smoke test
 
 The final validation gate uses real DNSE credentials and is opt-in only. Never commit credentials into the repository.
 
-Before merging the WebSocket implementation, the live smoke test can be run locally from the feature branch:
+Before merging the WebSocket implementation, run the live smoke test locally from the feature branch:
 
 ```bash
 cd java
