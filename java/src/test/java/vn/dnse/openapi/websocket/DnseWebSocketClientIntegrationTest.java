@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DnseWebSocketClientIntegrationTest {
@@ -61,6 +62,11 @@ class DnseWebSocketClientIntegrationTest {
                         serverError.set(error);
                     }
                 }
+
+                @Override
+                public void onClosing(WebSocket webSocket, int code, String reason) {
+                    webSocket.close(code, reason);
+                }
             }));
             server.start();
 
@@ -86,7 +92,7 @@ class DnseWebSocketClientIntegrationTest {
                 assertTrue(tradeReceived.await(1, TimeUnit.SECONDS));
                 assertEquals("FPT", receivedTrade.get().symbol());
                 assertEquals(100L, receivedTrade.get().quantity());
-                assertEquals(null, serverError.get());
+                assertNull(serverError.get());
             }
         }
     }
@@ -148,6 +154,11 @@ class DnseWebSocketClientIntegrationTest {
                         serverError.set(error);
                     }
                 }
+
+                @Override
+                public void onClosing(WebSocket webSocket, int code, String reason) {
+                    webSocket.close(code, reason);
+                }
             }));
             server.start();
 
@@ -161,7 +172,7 @@ class DnseWebSocketClientIntegrationTest {
                 assertEquals(2, authCount.get());
                 assertEquals(ConnectionState.AUTHENTICATED, client.state());
                 assertEquals("session-2", client.sessionId());
-                assertEquals(null, serverError.get());
+                assertNull(serverError.get());
             }
         }
     }
