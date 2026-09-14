@@ -11,6 +11,28 @@ import java.util.List;
 public final class MessageMapper {
     private MessageMapper() {}
 
+    public static String eventName(JsonNode data) {
+        String type = text(data, "T");
+        return switch (type == null ? "" : type) {
+            case "t" -> "trade";
+            case "te" -> "trade_extra";
+            case "e" -> "expected_price";
+            case "sd" -> "security_definition";
+            case "q" -> "quote";
+            case "b" -> "ohlc";
+            case "bc" -> "ohlc_closed";
+            case "do", "eo" -> "order_event";
+            case "dp", "ep" -> "position_event";
+            case "mi" -> "market_index";
+            case "emi" -> "estimated_market_index";
+            case "ii" -> "market_index_influence";
+            case "a" -> "account";
+            case "f" -> "foreign";
+            case "s" -> "session";
+            default -> null;
+        };
+    }
+
     public static Object map(JsonNode data, long receivedAt) {
         String type = text(data, "T");
         return switch (type == null ? "" : type) {
