@@ -18,7 +18,9 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
     private final OkHttpClient client;
     private volatile WebSocket webSocket;
     private final AtomicBoolean connected = new AtomicBoolean(false);
+    private final AtomicBoolean closing = new AtomicBoolean(false);
     private final AtomicBoolean resourcesClosed = new AtomicBoolean(false);
+    private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
     public OkHttpWebSocketTransport(Duration connectTimeout) {
         this.client = new OkHttpClient.Builder()
@@ -60,6 +62,7 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
             public void onClosed(WebSocket webSocket, int code, String reason) {
                 connected.set(false);
                 listener.onClosed(code, reason);
+                closeFuture.complete(null);
                 shutdownResources();
             }
 
@@ -69,6 +72,11 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
                 listener.onFailure(t);
                 if (!future.isDone()) {
                     future.completeExceptionally(new DnseConnectionException("WebSocket connection failed", t));
+                }
+                if (closing.get()) {
+                    closeFuture.complete(null);
+                } else {
+                    closeFuture.completeExceptionally(t);
                 }
                 shutdownResources();
             }
@@ -96,10 +104,25 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
     @Override
     public CompletableFuture<Void> disconnect() {
         WebSocket socket = webSocket;
-        connected.set(false);
-        if (socket != null) socket.close(1000, "client shutdown");
-        shutdownResources();
-        return CompletableFuture.completedFuture(null);
+        if (socket == null || !connected.get()) {
+            connected.set(false);
+            shutdownResources();
+            return CompletableFuture.completedFuture(null);
+        }
+
+        closing.set(true);
+        if (!socket.close(1000, "client shutdown")) {
+            connected.set(false);
+            shutdownResources();
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return closeFuture
+                .completeOnTimeout(null, 5, TimeUnit.SECONDS)
+                .whenComplete((ignored, error) -> {
+                    connected.set(false);
+                    shutdownResources();
+                });
     }
 
     private void shutdownResources() {
