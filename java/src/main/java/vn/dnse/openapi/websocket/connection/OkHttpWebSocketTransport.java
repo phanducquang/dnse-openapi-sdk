@@ -18,6 +18,7 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
     private final OkHttpClient client;
     private volatile WebSocket webSocket;
     private final AtomicBoolean connected = new AtomicBoolean(false);
+    private final AtomicBoolean resourcesClosed = new AtomicBoolean(false);
 
     public OkHttpWebSocketTransport(Duration connectTimeout) {
         this.client = new OkHttpClient.Builder()
@@ -52,12 +53,14 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
             @Override
             public void onClosing(WebSocket webSocket, int code, String reason) {
                 listener.onClosing(code, reason);
+                webSocket.close(code, reason);
             }
 
             @Override
             public void onClosed(WebSocket webSocket, int code, String reason) {
                 connected.set(false);
                 listener.onClosed(code, reason);
+                shutdownResources();
             }
 
             @Override
@@ -67,6 +70,7 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
                 if (!future.isDone()) {
                     future.completeExceptionally(new DnseConnectionException("WebSocket connection failed", t));
                 }
+                shutdownResources();
             }
         });
         return future;
@@ -94,8 +98,13 @@ public final class OkHttpWebSocketTransport implements WebSocketTransport {
         WebSocket socket = webSocket;
         connected.set(false);
         if (socket != null) socket.close(1000, "client shutdown");
+        shutdownResources();
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private void shutdownResources() {
+        if (!resourcesClosed.compareAndSet(false, true)) return;
         client.dispatcher().executorService().shutdown();
         client.connectionPool().evictAll();
-        return CompletableFuture.completedFuture(null);
     }
 }
