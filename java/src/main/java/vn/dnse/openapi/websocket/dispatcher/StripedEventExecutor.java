@@ -1,20 +1,37 @@
 package vn.dnse.openapi.websocket.dispatcher;
 
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public final class StripedEventExecutor implements AutoCloseable {
-    private final ExecutorService[] workers;
+    private final ThreadPoolExecutor[] workers;
 
     public StripedEventExecutor(int workerCount, int queueCapacity) {
-        workers = new ExecutorService[workerCount];
+        if (workerCount <= 0) throw new IllegalArgumentException("workerCount must be > 0");
+        if (queueCapacity <= 0) throw new IllegalArgumentException("queueCapacity must be > 0");
+
+        workers = new ThreadPoolExecutor[workerCount];
         for (int i = 0; i < workerCount; i++) {
             workers[i] = new ThreadPoolExecutor(
-                    1, 1, 0L, TimeUnit.MILLISECONDS,
+                    1,
+                    1,
+                    0L,
+                    TimeUnit.MILLISECONDS,
                     new ArrayBlockingQueue<>(queueCapacity),
-                    new ThreadPoolExecutor.CallerRunsPolicy());
+                    (task, executor) -> {
+                        if (executor.isShutdown()) {
+                            throw new RejectedExecutionException("Event executor is shut down");
+                        }
+                        try {
+                            executor.getQueue().put(task);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RejectedExecutionException("Interrupted while applying WebSocket backpressure", e);
+                        }
+                    }
+            );
         }
     }
 
@@ -25,6 +42,6 @@ public final class StripedEventExecutor implements AutoCloseable {
 
     @Override
     public void close() {
-        for (ExecutorService worker : workers) worker.shutdownNow();
+        for (ThreadPoolExecutor worker : workers) worker.shutdownNow();
     }
 }
