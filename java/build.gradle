@@ -1,0 +1,43 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'vn.dnse.openapi'
+version = '0.1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+dependencies {
+    api 'com.squareup.okhttp3:okhttp:4.12.0'
+    api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+    implementation 'org.msgpack:jackson-dataformat-msgpack:0.9.9'
+    implementation 'org.slf4j:slf4j-api:2.0.16'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.16'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
