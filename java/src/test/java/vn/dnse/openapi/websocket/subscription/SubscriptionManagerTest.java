@@ -39,4 +39,17 @@ class SubscriptionManagerTest {
 
         assertTrue(manager.snapshot().isEmpty());
     }
+
+    @Test
+    void mergesBulkBatchesAndRetainsRestoreBatchSize() {
+        SubscriptionManager manager = new SubscriptionManager();
+
+        manager.addSymbols("tick.G1.json", List.of("FPT", "VNM"), 2);
+        manager.addSymbols("tick.G1.json", List.of("HPG", "SSI"), 2);
+        manager.addSymbols("tick.G1.json", List.of("VCB"), 2);
+
+        SubscriptionManager.Entry entry = manager.snapshot().iterator().next();
+        assertEquals(List.of("FPT", "VNM", "HPG", "SSI", "VCB"), entry.symbols());
+        assertEquals(2, entry.restoreBatchSize());
+    }
 }
