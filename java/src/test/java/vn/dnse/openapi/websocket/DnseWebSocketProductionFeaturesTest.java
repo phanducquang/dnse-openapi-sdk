@@ -179,7 +179,95 @@ class DnseWebSocketProductionFeaturesTest {
         }
     }
 
+    @Test
+    void reconnectRestoresBulkSubscriptionsUsingOriginalBatchSize() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            CountDownLatch firstConnectionBatches = new CountDownLatch(3);
+            CountDownLatch restoredBatches = new CountDownLatch(3);
+            AtomicInteger firstSubscribeCount = new AtomicInteger();
+            List<Integer> restoredSizes = Collections.synchronizedList(new ArrayList<>());
+
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                @Override
+                public void onOpen(WebSocket webSocket, Response response) {
+                    webSocket.send(ByteString.encodeUtf8("{\"session_id\":\"session-1\"}"));
+                }
+
+                @Override
+                public void onMessage(WebSocket webSocket, ByteString bytes) {
+                    try {
+                        JsonNode message = MAPPER.readTree(bytes.utf8());
+                        String action = message.path("action").asText();
+                        if ("auth".equals(action)) {
+                            webSocket.send(ByteString.encodeUtf8("{\"action\":\"auth_success\"}"));
+                        } else if ("subscribe".equals(action)) {
+                            firstConnectionBatches.countDown();
+                            if (firstSubscribeCount.incrementAndGet() == 3) {
+                                webSocket.close(1012, "service restart");
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }));
+
+            server.enqueue(new MockResponse().withWebSocketUpgrade(new WebSocketListener() {
+                @Override
+                public void onOpen(WebSocket webSocket, Response response) {
+                    webSocket.send(ByteString.encodeUtf8("{\"session_id\":\"session-2\"}"));
+                }
+
+                @Override
+                public void onMessage(WebSocket webSocket, ByteString bytes) {
+                    try {
+                        JsonNode message = MAPPER.readTree(bytes.utf8());
+                        String action = message.path("action").asText();
+                        if ("auth".equals(action)) {
+                            webSocket.send(ByteString.encodeUtf8("{\"action\":\"auth_success\"}"));
+                        } else if ("subscribe".equals(action)) {
+                            JsonNode channel = message.path("channels").path(0);
+                            restoredSizes.add(channel.path("symbols").size());
+                            restoredBatches.countDown();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                @Override
+                public void onClosing(WebSocket webSocket, int code, String reason) {
+                    webSocket.close(code, reason);
+                }
+            }));
+            server.start();
+
+            ReconnectPolicy reconnectPolicy = new ReconnectPolicy(
+                    true,
+                    3,
+                    Duration.ofMillis(10),
+                    Duration.ofMillis(50)
+            );
+
+            try (DnseWebSocketClient client = new DnseWebSocketClient(config(server, reconnectPolicy))) {
+                client.connect().get(2, TimeUnit.SECONDS);
+                client.subscribeTrades(
+                        Map.of("G1", List.of("FPT", "VNM", "HPG", "SSI", "VCB")),
+                        SubscriptionOptions.builder().batchSize(2).build()
+                );
+
+                assertTrue(firstConnectionBatches.await(1, TimeUnit.SECONDS));
+                assertTrue(restoredBatches.await(3, TimeUnit.SECONDS));
+                assertEquals(List.of(2, 2, 1), restoredSizes);
+                assertEquals(ConnectionState.AUTHENTICATED, client.state());
+                assertEquals("session-2", client.sessionId());
+            }
+        }
+    }
+
     private static DnseWebSocketConfig config(MockWebServer server) {
+        return config(server, new ReconnectPolicy(false, 0, Duration.ofMillis(10), Duration.ofMillis(10)));
+    }
+
+    private static DnseWebSocketConfig config(MockWebServer server, ReconnectPolicy reconnectPolicy) {
         return DnseWebSocketConfig.builder()
                 .apiKey("test-key")
                 .apiSecret("test-secret")
@@ -187,7 +275,7 @@ class DnseWebSocketProductionFeaturesTest {
                 .encoding(MessageEncoding.JSON)
                 .connectTimeout(Duration.ofSeconds(2))
                 .heartbeatInterval(Duration.ZERO)
-                .reconnectPolicy(new ReconnectPolicy(false, 0, Duration.ofMillis(10), Duration.ofMillis(10)))
+                .reconnectPolicy(reconnectPolicy)
                 .clock(Clock.fixed(Instant.ofEpochSecond(1_720_000_000L), ZoneOffset.UTC))
                 .nonceGenerator(() -> "1720000000123456")
                 .build();
