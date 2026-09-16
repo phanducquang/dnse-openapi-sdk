@@ -27,7 +27,7 @@ public class DnseSubscriptionException extends DnseWebSocketException {
         this(message, channel, symbols, errorCode, serverReported, null);
     }
 
-    private DnseSubscriptionException(
+    public DnseSubscriptionException(
             String message,
             String channel,
             List<String> symbols,
