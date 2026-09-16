@@ -20,7 +20,12 @@ public final class SubscriptionManager {
 
     /** Stores/replaces the complete symbol set for a channel and restores it in one batch. */
     public void put(String channel, List<String> symbols) {
-        subscriptions.put(channel, new Entry(channel, symbols, Math.max(1, symbols.size())));
+        put(channel, symbols, Math.max(1, symbols.size()));
+    }
+
+    /** Stores/replaces the complete symbol set and explicit reconnect batch size for a channel. */
+    public void put(String channel, List<String> symbols, int restoreBatchSize) {
+        subscriptions.put(channel, new Entry(channel, symbols, restoreBatchSize));
     }
 
     /** Adds symbols while preserving earlier batches and the safest (smallest) restore batch size. */
@@ -60,6 +65,11 @@ public final class SubscriptionManager {
                     ? null
                     : new Entry(channel, remaining, current.restoreBatchSize());
         });
+    }
+
+    /** Returns the current immutable entry for one channel, or {@code null} if absent. */
+    public Entry get(String channel) {
+        return subscriptions.get(channel);
     }
 
     public Collection<Entry> snapshot() {
