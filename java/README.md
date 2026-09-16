@@ -1,24 +1,38 @@
 # DNSE OpenAPI Java SDK
 
-Java 17 SDK for DNSE OpenAPI. The current milestone focuses on WebSocket parity with the Python SDK before REST support is added.
+Java 17 SDK for DNSE OpenAPI, currently focused on production-ready WebSocket market/private realtime flows with behavior ported from the Python SDK.
 
-## Current scope
+The core library is framework-independent: it does not depend on Spring Boot, Micrometer, Kafka, Redis or a database. Those integrations stay in the consuming application.
 
-- Java 17, framework-independent core
-- HMAC-SHA256 WebSocket authentication compatible with the Python SDK
+For detailed integration and production usage, see [USAGE.md](USAGE.md).
+
+## Features
+
+- HMAC-SHA256 authentication compatible with the Python SDK
 - JSON and MessagePack codecs
 - OkHttp WebSocket transport
-- connection/authentication state machine with lifecycle transition callbacks
-- typed market/private events: Trade, TradeExtra, Quote, OHLC, ExpectedPrice, SecurityDefinition, ForeignInvestor, MarketIndex, EstimatedMarketIndex, IndexInfluence, Order, Position, Session and AccountUpdate
-- typed subscription/unsubscription helpers for market-data and private channels
-- async subscription result with explicit transport-confirmation semantics
-- bulk/batched trade subscriptions with reconnect-safe batch restoration
-- framework-neutral metrics hooks and dispatcher/backpressure statistics
-- per-symbol ordered dispatch with bounded queues and blocking backpressure
-- application heartbeat
-- exponential-backoff reconnect, re-authentication and subscription restore
-- MockWebServer protocol integration tests
-- Python-generated MessagePack compatibility fixture tests
+- typed market/private event models and handlers
+- lifecycle state callbacks
+- initial connection policies: `FAIL_FAST` and `RETRY`
+- exponential-backoff runtime reconnect and re-authentication
+- automatic subscription restoration after reconnect
+- single, async and bulk/batched subscriptions
+- runtime Trade-universe reconciliation (`added` / `removed` / `unchanged`)
+- reconnect-safe subscription batch restoration
+- explicit `TRANSPORT_ACCEPTED` subscribe confirmation semantics
+- structured server-reported subscription errors
+- per-symbol ordered dispatch
+- bounded queues and blocking backpressure
+- framework-neutral metrics hooks and dispatcher statistics
+- heartbeat and health helpers
+- executable realtime example
+- MockWebServer integration tests and Python-generated MessagePack compatibility tests
+
+## Requirements
+
+- Java 17+
+- Gradle 8.x to build this module
+- DNSE OpenAPI credentials for live usage
 
 ## Build and test
 
@@ -27,13 +41,43 @@ cd java
 gradle test
 ```
 
-The `Java SDK` GitHub Actions workflow runs the same test suite on Java 17 for pushes and pull requests that change the Java module. The live smoke test is guarded by `DNSE_LIVE_TEST=true`, so it is skipped during normal CI.
+Build JAR/source/Javadoc artifacts:
 
-## Run the realtime market-data example
+```bash
+gradle build
+```
 
-The executable example lives in a dedicated `example` source set, so it is not packaged into the SDK JAR. The normal test task also compiles the example to keep it validated by CI.
+## Use the SDK from another local project
 
-Configure your DNSE credentials as environment variables:
+The current Maven coordinates are:
+
+```text
+vn.dnse.openapi:dnse-openapi-sdk:0.1.0-SNAPSHOT
+```
+
+Publish locally:
+
+```bash
+cd java
+gradle publishToMavenLocal
+```
+
+Consumer Gradle project:
+
+```gradle
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'vn.dnse.openapi:dnse-openapi-sdk:0.1.0-SNAPSHOT'
+}
+```
+
+A remote Maven release repository is not configured yet.
+
+## Run the realtime example
 
 ```bash
 cd java
@@ -44,31 +88,41 @@ export DNSE_API_SECRET='<your-api-secret>'
 gradle run
 ```
 
-By default the example connects to `wss://ws-openapi.dnse.com.vn`, authenticates, subscribes to `FPT` trades on board `G1`, then prints realtime trades until you press `Ctrl+C`.
+The example defaults to:
+
+```text
+Gateway:                     wss://ws-openapi.dnse.com.vn
+Symbol:                      FPT
+Board:                       G1
+Encoding:                    JSON
+Initial connection policy:   RETRY
+```
 
 Optional environment variables:
 
 ```text
-DNSE_WS_BASE_URL   default: wss://ws-openapi.dnse.com.vn
-DNSE_SYMBOLS       default: FPT; comma-separated, for example FPT,VNM,HPG
-DNSE_BOARD         default: G1
-DNSE_ENCODING      default: JSON; accepted values: JSON, MSGPACK
+DNSE_WS_BASE_URL                 default: wss://ws-openapi.dnse.com.vn
+DNSE_SYMBOLS                     default: FPT; comma-separated, e.g. FPT,VNM,HPG
+DNSE_BOARD                       default: G1
+DNSE_ENCODING                    default: JSON; JSON or MSGPACK
+DNSE_INITIAL_CONNECTION_POLICY   default: RETRY; RETRY or FAIL_FAST
 ```
 
-For compatibility with the live smoke test, `DNSE_TEST_SYMBOL` and `DNSE_TEST_BOARD` are also accepted as fallbacks when `DNSE_SYMBOLS` and `DNSE_BOARD` are not set.
-
-For example:
+Example:
 
 ```bash
 DNSE_API_KEY='<your-api-key>' \
 DNSE_API_SECRET='<your-api-secret>' \
 DNSE_SYMBOLS='FPT,VNM,HPG' \
 DNSE_BOARD='G1' \
-DNSE_ENCODING='JSON' \
+DNSE_ENCODING='MSGPACK' \
+DNSE_INITIAL_CONNECTION_POLICY='RETRY' \
 gradle run
 ```
 
-## Basic usage
+The process logs connection-state changes, subscribes trades, prints realtime data and closes gracefully on `Ctrl+C`.
+
+## Quick start
 
 ```java
 DnseWebSocketConfig config = DnseWebSocketConfig.builder()
@@ -79,30 +133,171 @@ DnseWebSocketConfig config = DnseWebSocketConfig.builder()
 
 try (DnseWebSocketClient client = new DnseWebSocketClient(config)) {
     client.onTrade(System.out::println);
-    client.onQuote(System.out::println);
     client.onError(Throwable::printStackTrace);
 
     client.connect().join();
+    client.subscribeTrades(List.of("FPT", "VNM"), "G1");
 
-    Subscription trades = client.subscribeTrades(List.of("FPT", "VNM"), "G1");
-    Subscription quotes = client.subscribeQuotes(List.of("FPT", "VNM"), "G1");
-
-    trades.unsubscribe().join();
-    quotes.unsubscribe().join();
+    // Keep the application alive while consuming data.
 }
 ```
 
-If no board is supplied, the SDK can subscribe across the Python SDK default boards:
+`connect()` returns only after authentication succeeds, or after the selected initial connection policy fails/exhausts its retry budget.
+
+## Recommended long-running configuration
+
+For continuous market-data ingestion:
 
 ```java
-List<Subscription> subscriptions = client.subscribeTrades(List.of("FPT"));
+DnseWebSocketConfig config = DnseWebSocketConfig.builder()
+        .apiKey(apiKey)
+        .apiSecret(apiSecret)
+        .baseUrl("wss://ws-openapi.dnse.com.vn")
+        .encoding(MessageEncoding.MSGPACK)
+        .connectTimeout(Duration.ofSeconds(30))
+        .heartbeatInterval(Duration.ofSeconds(25))
+        .dispatchWorkers(16)
+        .queueCapacity(4_000)
+        .initialConnectionPolicy(InitialConnectionPolicy.RETRY)
+        .reconnectPolicy(new ReconnectPolicy(
+                true,
+                10,
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(60)
+        ))
+        .build();
 ```
 
-Additional helpers include:
+`FAIL_FAST` remains the SDK default for backward-compatible startup behavior. `RETRY` is recommended for services that should tolerate the gateway being temporarily unavailable during application startup. Authentication failures are not retried.
+
+## Subscribe an all-market universe
+
+The application should load instruments and group each symbol by the correct DNSE board. Do not send one global symbol list to every board.
+
+```java
+Map<String, List<String>> symbolsByBoard = new LinkedHashMap<>();
+symbolsByBoard.put("G1", g1Symbols);
+symbolsByBoard.put("G3", g3Symbols);
+symbolsByBoard.put("G4", g4Symbols);
+
+SubscriptionOptions options = SubscriptionOptions.builder()
+        .batchSize(200)
+        .build();
+
+BulkSubscriptionResult result = client.subscribeTrades(
+        symbolsByBoard,
+        options
+);
+```
+
+The SDK deduplicates symbols, sends bounded batches sequentially and remembers the batch size for reconnect restoration.
+
+`200` is an application starting point, not a documented DNSE protocol limit. Validate the value against the live gateway.
+
+## Update the universe without reconnecting
+
+When your instrument list changes, call:
+
+```java
+SubscriptionReconciliationResult result = client.reconcileTrades(
+        desiredSymbolsByBoard,
+        options
+);
+```
+
+The SDK compares current Trade subscriptions with the desired universe and sends only the delta:
 
 ```text
+new symbol      -> subscribe
+removed symbol  -> unsubscribe
+unchanged       -> no wire operation
+```
+
+Example:
+
+```text
+Current G1: FPT, VNM, HPG
+Desired G1: FPT, HPG, SSI
+Desired G3: VCB
+
+Sent:
+subscribe   tick.G1 -> SSI
+unsubscribe tick.G1 -> VNM
+subscribe   tick.G3 -> VCB
+```
+
+After reconciliation, runtime reconnect restores the new desired state. Calling reconciliation again with the same universe produces zero subscribe/unsubscribe operations.
+
+## Runtime reconnect behavior
+
+After a successful connection, abnormal disconnects follow:
+
+```text
+AUTHENTICATED
+  -> RECONNECTING
+  -> CONNECTING
+  -> CONNECTED
+  -> AUTHENTICATING
+  -> AUTHENTICATED
+  -> restore active subscriptions in safe batches
+```
+
+Do not add a competing reconnect loop in Spring or application code.
+
+## Subscription confirmation semantics
+
+```java
+SubscriptionResult result = client
+        .subscribeTradesAsync(List.of("FPT"), "G1")
+        .join();
+
+assert result.confirmation() == SubscriptionConfirmation.TRANSPORT_ACCEPTED;
+```
+
+`TRANSPORT_ACCEPTED` means the outgoing WebSocket message was accepted by the transport and stored in local reconnect state. It deliberately does not claim a DNSE subscribe ACK because the Python SDK flow used as the compatibility source does not consume a subscribe ACK/request id.
+
+A later DNSE `action=error` message with channel details is exposed through `onError` as a structured `DnseSubscriptionException` when possible.
+
+## Lifecycle and observability
+
+```java
+client.onStateChanged(event -> log.info(
+        "DNSE {} -> {} session={} cause={}",
+        event.previous(),
+        event.current(),
+        event.sessionId(),
+        event.cause()
+));
+
+client.onBackpressure(event -> log.warn(
+        "worker={} queue={}/{} blocked={}ms",
+        event.workerIndex(),
+        event.queueSize(),
+        event.queueCapacity(),
+        event.blockedFor().toMillis()
+));
+
+DispatcherStats stats = client.dispatcherStats();
+```
+
+Framework-neutral metrics callbacks are available through `DnseWebSocketMetricsListener`. A Spring application can bridge them to Micrometer/Prometheus and use:
+
+```java
+client.state();
+client.sessionId();
+client.lastPongAt();
+client.isHealthy();
+```
+
+for its own health/readiness integration.
+
+## Typed subscription helpers
+
+```text
+subscribeTrades
 subscribeTradeExtra
 subscribeExpectedPrice
+subscribeQuotes
 subscribeSecurityDefinitions
 subscribeOhlc
 subscribeOhlcClosed
@@ -120,112 +315,31 @@ subscribePositions
 subscribeAccount
 ```
 
-## Bulk subscriptions for large symbol universes
+## Protocol and reliability tests
 
-For all-market ingestion, group instruments by their correct DNSE board before calling the WebSocket SDK. Do not send one global symbol list to every board.
+The automated suite covers:
 
-```java
-Map<String, List<String>> symbolsByBoard = Map.of(
-        "G1", List.of("FPT", "VNM", "HPG"),
-        "G3", List.of("...")
-);
-
-BulkSubscriptionResult result = client.subscribeTrades(
-        symbolsByBoard,
-        SubscriptionOptions.builder()
-                .batchSize(200)
-                .build()
-);
-
-System.out.println("symbols=" + result.subscribedSymbols());
-System.out.println("requests=" + result.subscriptionCount());
-```
-
-The SDK deduplicates symbols per board, sends batches sequentially, merges reconnect state, and remembers the configured batch size. After reconnect, restored subscriptions are split back into safe batches instead of being collapsed into one very large request.
-
-The batch size is operational configuration. The current Python SDK does not document or consume a gateway maximum-symbol ACK, so choose a conservative value and validate it against the live DNSE gateway.
-
-## Async subscription confirmation and server errors
-
-```java
-SubscriptionResult result = client
-        .subscribeTradesAsync(List.of("FPT"), "G1")
-        .join();
-
-assert result.confirmation() == SubscriptionConfirmation.TRANSPORT_ACCEPTED;
-```
-
-`TRANSPORT_ACCEPTED` deliberately means the WebSocket transport accepted the outgoing message and the SDK stored the subscription locally. It does **not** claim that DNSE sent a subscribe ACK: the current Python SDK sends subscribe messages without consuming an ACK/request id.
-
-If DNSE later sends an `action=error` payload containing channel details, the Java SDK exposes a structured `DnseSubscriptionException` through `onError`, including channel, symbols, error code and `serverReported=true` when those fields are available.
-
-## Lifecycle and observability hooks
-
-Long-running applications can observe connection transitions without polling:
-
-```java
-client.onStateChanged(event ->
-        log.info("DNSE {} -> {} session={}",
-                event.previous(),
-                event.current(),
-                event.sessionId())
-);
-```
-
-Framework-neutral metrics hooks are available without adding Micrometer or Spring dependencies to the SDK:
-
-```java
-client.onMetrics(new DnseWebSocketMetricsListener() {
-    @Override
-    public void onReconnect(int attempt) {
-        // increment application metric
-    }
-
-    @Override
-    public void onSubscriptionAdded(String channel, int symbolCount) {
-        // update application metric
-    }
-});
-```
-
-Backpressure can be observed directly:
-
-```java
-client.onBackpressure(event ->
-        log.warn("worker={} queue={}/{} blocked={}ms",
-                event.workerIndex(),
-                event.queueSize(),
-                event.queueCapacity(),
-                event.blockedFor().toMillis())
-);
-
-DispatcherStats stats = client.dispatcherStats();
-```
-
-`DispatcherStats` exposes aggregate queue utilization, active workers, blocked-submission count and total blocking time. Application callbacks and metrics listeners should remain fast because they may execute on WebSocket or dispatcher threads.
-
-## Protocol validation
-
-The automated suite verifies:
-
-- welcome -> authentication -> subscription -> typed event dispatch
-- abnormal server close -> reconnect -> re-authentication -> subscription restore
-- all message type codes currently mapped by the Python SDK
+- HMAC authentication golden vector
+- JSON and Python-generated MessagePack compatibility
+- Python `_MSG_TYPE_MAP` parity
+- welcome -> auth -> subscribe -> typed event dispatch
+- runtime disconnect -> reconnect -> re-auth -> subscription restore
+- initial connection `FAIL_FAST`
+- initial connection `RETRY` until authentication succeeds
+- bulk subscription batching
+- reconnect-safe batch restoration
+- runtime Trade-universe reconciliation and converged local state
 - same-symbol ordering under queue pressure
-- partial unsubscribe state used for reconnect
-- bulk subscription batching and reconnect-safe batch state
-- connection-state transition callbacks
-- framework-neutral metrics callbacks
+- partial unsubscribe state
+- state-change callbacks
+- metrics callbacks
 - structured server subscription errors
 - dispatcher/backpressure statistics
-- JSON and Python-generated MessagePack payload compatibility
 - graceful WebSocket close handshake
 
 ## Live smoke test
 
-The final validation gate uses real DNSE credentials and is opt-in only. Never commit credentials into the repository.
-
-Before merging the WebSocket implementation, run the live smoke test locally from the feature branch:
+Normal CI does not use real DNSE credentials.
 
 ```bash
 cd java
@@ -235,7 +349,7 @@ DNSE_API_SECRET='<your-api-secret>' \
 gradle test --tests vn.dnse.openapi.websocket.DnseWebSocketLiveSmokeTest --stacktrace
 ```
 
-Optional environment variables:
+Optional:
 
 ```text
 DNSE_WS_BASE_URL   default: wss://ws-openapi.dnse.com.vn
@@ -243,15 +357,10 @@ DNSE_TEST_SYMBOL   default: FPT
 DNSE_TEST_BOARD    default: G1
 ```
 
-A separate `Java SDK Live Smoke` workflow is also included. Once that workflow is available on the repository default branch, it can be started manually through **Actions -> Java SDK Live Smoke -> Run workflow** using repository secrets:
+Never commit credentials or signatures into source/logs.
 
-```text
-DNSE_API_KEY
-DNSE_API_SECRET
-```
+## Current scope
 
-The smoke test connects, authenticates and sends a market-data subscription. Credentials and signatures are not logged by the test.
+WebSocket functionality is the current completed milestone. REST support, including Java `get_instruments`, remains intentionally separate. Until that REST work is added, the consuming application supplies the instrument universe used for all-market subscription/reconciliation.
 
-## Compatibility source
-
-Protocol behavior is ported from `python/dnse/websocket` in this repository. REST support remains intentionally deferred until the WebSocket implementation reaches protocol and live-runtime parity.
+See [USAGE.md](USAGE.md) for the full integration guide.
