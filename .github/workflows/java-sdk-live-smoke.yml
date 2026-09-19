@@ -1,0 +1,73 @@
+name: Java SDK Live Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Live smoke target
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - websocket
+          - rest
+      symbol:
+        description: Symbol used by live smoke tests
+        required: false
+        default: FPT
+      board:
+        description: WebSocket board ID
+        required: false
+        default: G1
+      api_version:
+        description: DNSE REST API version
+        required: false
+        default: '2026-07-23'
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: java
+    env:
+      DNSE_API_KEY: ${{ secrets.DNSE_API_KEY }}
+      DNSE_API_SECRET: ${{ secrets.DNSE_API_SECRET }}
+      DNSE_TEST_SYMBOL: ${{ inputs.symbol }}
+      DNSE_TEST_BOARD: ${{ inputs.board }}
+      DNSE_API_VERSION: ${{ inputs.api_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$DNSE_API_KEY" ] || [ -z "$DNSE_API_SECRET" ]; then
+            echo "DNSE_API_KEY and DNSE_API_SECRET repository secrets are required"
+            exit 1
+          fi
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12.1'
+
+      - name: Run DNSE WebSocket live smoke test
+        if: ${{ inputs.mode == 'both' || inputs.mode == 'websocket' }}
+        env:
+          DNSE_LIVE_TEST: 'true'
+        run: gradle test --tests vn.dnse.openapi.websocket.DnseWebSocketLiveSmokeTest --stacktrace
+
+      - name: Run DNSE REST live smoke test
+        if: ${{ inputs.mode == 'both' || inputs.mode == 'rest' }}
+        env:
+          DNSE_REST_LIVE_TEST: 'true'
+        run: gradle test --tests vn.dnse.openapi.rest.DnseRestLiveSmokeTest --stacktrace
