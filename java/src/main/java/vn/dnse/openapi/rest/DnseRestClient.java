@@ -1012,7 +1012,9 @@ public final class DnseRestClient implements AutoCloseable {
         Request.Builder requestBuilder = new Request.Builder().url(url);
         headers.forEach(requestBuilder::header);
 
-        RequestBody requestBody = bodyJson == null ? null : RequestBody.create(bodyJson, JSON);
+        RequestBody requestBody = bodyJson == null
+                ? null
+                : RequestBody.create(bodyJson.getBytes(StandardCharsets.UTF_8), JSON);
         if (requestBody == null && requiresRequestBody(method)) {
             requestBody = RequestBody.create(new byte[0], null);
         }
