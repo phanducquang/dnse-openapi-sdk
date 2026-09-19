@@ -491,6 +491,6 @@ Never commit API credentials to the repository.
 
 Implemented WebSocket scope includes authentication, JSON/MessagePack, typed events, subscriptions, bulk batching, handshake timeout, bounded/unlimited startup and runtime retry, reconnect/restore readiness, Trade/TradeExtra universe reconciliation, ordering, backpressure, graceful callback draining and observability hooks.
 
-REST signing/transport and Market Data read APIs are now implemented under `vn.dnse.openapi.rest`, including `getInstruments`. See [REST_USAGE.md](REST_USAGE.md).
+REST signing/transport plus all public endpoint wrappers currently present in the Python REST client are now implemented under `vn.dnse.openapi.rest`. See [REST_USAGE.md](REST_USAGE.md).
 
-The next REST work is account/read APIs followed by trading-token/order/position write APIs.
+The remaining REST work is optional typed-response modeling and live endpoint validation; the wire-level API conversion is complete.
