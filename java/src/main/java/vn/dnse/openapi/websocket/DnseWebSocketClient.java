@@ -80,6 +80,9 @@ public final class DnseWebSocketClient implements AutoCloseable {
     private final AtomicBoolean reconnectScheduled = new AtomicBoolean(false);
     private final AtomicBoolean initialConnectionInProgress = new AtomicBoolean(false);
     private final AtomicBoolean heartbeatStarted = new AtomicBoolean(false);
+    private final AtomicBoolean subscriptionRestoreInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean subscriptionsReady = new AtomicBoolean(true);
+    private final AtomicReference<Throwable> lastSubscriptionRestoreError = new AtomicReference<>();
 
     private volatile WebSocketTransport transport;
     private volatile String sessionId;
@@ -160,14 +163,15 @@ public final class DnseWebSocketClient implements AutoCloseable {
 
     private boolean shouldRetryInitialConnection(Throwable cause, int retriesUsed) {
         if (config.initialConnectionPolicy() != InitialConnectionPolicy.RETRY) return false;
-        if (!config.reconnectPolicy().enabled()) return false;
         if (cause instanceof DnseAuthenticationException) return false;
-        return retriesUsed < config.reconnectPolicy().maxRetries();
+        return config.reconnectPolicy().canRetry(retriesUsed);
     }
 
     private void closeFailedTransport() {
         WebSocketTransport current = transport;
-        if (current != null && current.isConnected()) {
+        if (current == null) return;
+        if (transport == current) transport = null;
+        if (current.isConnected()) {
             current.disconnect().exceptionally(error -> {
                 log.debug("Failed to close unsuccessful DNSE connection attempt", error);
                 return null;
@@ -182,7 +186,10 @@ public final class DnseWebSocketClient implements AutoCloseable {
         this.authenticationFuture = authFuture;
         String url = config.baseUrl() + "/v1/stream?encoding=" + config.encoding().wireName();
         return candidate.connect(url, new TransportListener(candidate, authFuture))
-                .thenCompose(ignored -> authFuture);
+                .thenCompose(ignored -> authFuture.orTimeout(
+                        config.handshakeTimeout().toMillis(),
+                        TimeUnit.MILLISECONDS
+                ));
     }
 
     public List<Subscription> subscribeTrades(List<String> symbols) {
@@ -228,82 +235,12 @@ public final class DnseWebSocketClient implements AutoCloseable {
             Map<String, List<String>> desiredSymbolsByBoard,
             SubscriptionOptions options
     ) {
-        Objects.requireNonNull(desiredSymbolsByBoard, "desiredSymbolsByBoard");
-        Objects.requireNonNull(options, "options");
-        if (state.get() != ConnectionState.AUTHENTICATED) {
-            return CompletableFuture.failedFuture(new DnseSubscriptionException("Must authenticate before reconciling subscriptions"));
-        }
-
-        Map<String, List<String>> desiredByChannel = new LinkedHashMap<>();
-        desiredSymbolsByBoard.forEach((board, symbols) -> desiredByChannel.put(
-                ChannelBuilder.trades(board, config.encoding()),
-                deduplicate(Objects.requireNonNull(symbols, "symbols"))
-        ));
-
-        Map<String, SubscriptionManager.Entry> currentTradeChannels = new LinkedHashMap<>();
-        for (SubscriptionManager.Entry entry : subscriptions.snapshot()) {
-            if (isTradeChannel(entry.channel())) currentTradeChannels.put(entry.channel(), entry);
-        }
-
-        Set<String> channels = new LinkedHashSet<>(desiredByChannel.keySet());
-        channels.addAll(currentTradeChannels.keySet());
-
-        int[] desiredCount = {0};
-        int[] addedCount = {0};
-        int[] removedCount = {0};
-        int[] unchangedCount = {0};
-        int[] subscribeOperations = {0};
-        int[] unsubscribeOperations = {0};
-        int[] activeChannels = {0};
-        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-
-        for (String channel : channels) {
-            List<String> desired = desiredByChannel.getOrDefault(channel, List.of());
-            SubscriptionManager.Entry currentEntry = currentTradeChannels.get(channel);
-            List<String> current = currentEntry == null ? List.of() : currentEntry.symbols();
-            boolean currentChannelOnly = currentEntry != null && current.isEmpty();
-
-            List<String> added = difference(desired, current);
-            List<String> removed = difference(current, desired);
-            int unchanged = intersectionSize(current, desired);
-
-            desiredCount[0] += desired.size();
-            addedCount[0] += added.size();
-            removedCount[0] += removed.size();
-            unchangedCount[0] += unchanged;
-            if (!desired.isEmpty()) activeChannels[0]++;
-
-            if (currentChannelOnly) {
-                chain = chain.thenCompose(ignored -> unsubscribeChannel(channel, List.of()));
-                unsubscribeOperations[0]++;
-            }
-
-            for (List<String> batch : batches(added, options.batchSize())) {
-                chain = chain.thenCompose(ignored ->
-                        subscribeAsyncInternal(channel, batch, options.batchSize()).thenAccept(result -> {}));
-                subscribeOperations[0]++;
-            }
-
-            for (List<String> batch : batches(removed, options.batchSize())) {
-                chain = chain.thenCompose(ignored -> unsubscribeChannel(channel, batch));
-                unsubscribeOperations[0]++;
-            }
-
-            chain = chain.thenRun(() -> {
-                if (desired.isEmpty()) subscriptions.remove(channel);
-                else subscriptions.put(channel, desired, options.batchSize());
-            });
-        }
-
-        return chain.thenApply(ignored -> new SubscriptionReconciliationResult(
-                desiredCount[0],
-                addedCount[0],
-                removedCount[0],
-                unchangedCount[0],
-                subscribeOperations[0],
-                unsubscribeOperations[0],
-                activeChannels[0]
-        ));
+        return reconcileByBoardAsync(
+                desiredSymbolsByBoard,
+                options,
+                board -> ChannelBuilder.trades(board, config.encoding()),
+                "tick."
+        );
     }
 
     public List<Subscription> subscribeTradeExtra(List<String> symbols) {
@@ -312,6 +249,48 @@ public final class DnseWebSocketClient implements AutoCloseable {
 
     public Subscription subscribeTradeExtra(List<String> symbols, String boardId) {
         return subscribe(ChannelBuilder.tradeExtra(boardId, config.encoding()), symbols);
+    }
+
+    public CompletableFuture<SubscriptionResult> subscribeTradeExtraAsync(List<String> symbols, String boardId) {
+        return subscribeAsync(ChannelBuilder.tradeExtra(boardId, config.encoding()), symbols);
+    }
+
+    /** Bulk TradeExtra subscription keyed by board id with deduplication and bounded batches. */
+    public BulkSubscriptionResult subscribeTradeExtra(
+            Map<String, List<String>> symbolsByBoard,
+            SubscriptionOptions options
+    ) {
+        return joinSubscriptionFuture(subscribeTradeExtraAsync(symbolsByBoard, options));
+    }
+
+    public CompletableFuture<BulkSubscriptionResult> subscribeTradeExtraAsync(
+            Map<String, List<String>> symbolsByBoard,
+            SubscriptionOptions options
+    ) {
+        Objects.requireNonNull(symbolsByBoard, "symbolsByBoard");
+        Map<String, List<String>> symbolsByChannel = new LinkedHashMap<>();
+        symbolsByBoard.forEach((board, symbols) ->
+                symbolsByChannel.put(ChannelBuilder.tradeExtra(board, config.encoding()), symbols));
+        return subscribeBulkAsync(symbolsByChannel, options);
+    }
+
+    public SubscriptionReconciliationResult reconcileTradeExtra(
+            Map<String, List<String>> desiredSymbolsByBoard,
+            SubscriptionOptions options
+    ) {
+        return joinSubscriptionFuture(reconcileTradeExtraAsync(desiredSymbolsByBoard, options));
+    }
+
+    public CompletableFuture<SubscriptionReconciliationResult> reconcileTradeExtraAsync(
+            Map<String, List<String>> desiredSymbolsByBoard,
+            SubscriptionOptions options
+    ) {
+        return reconcileByBoardAsync(
+                desiredSymbolsByBoard,
+                options,
+                board -> ChannelBuilder.tradeExtra(board, config.encoding()),
+                "tick_extra."
+        );
     }
 
     public List<Subscription> subscribeExpectedPrice(List<String> symbols) {
@@ -515,11 +494,25 @@ public final class DnseWebSocketClient implements AutoCloseable {
     public String sessionId() { return sessionId; }
     public Instant lastPongAt() { return lastPongAt; }
     public DispatcherStats dispatcherStats() { return dispatcher.stats(); }
+    public boolean subscriptionsReady() { return subscriptionsReady.get(); }
+    public boolean subscriptionRestoreInProgress() { return subscriptionRestoreInProgress.get(); }
+    public Throwable lastSubscriptionRestoreError() { return lastSubscriptionRestoreError.get(); }
 
     public boolean isHealthy() {
         if (state.get() != ConnectionState.AUTHENTICATED || transport == null || !transport.isConnected()) return false;
         if (config.heartbeatInterval().isZero() || config.heartbeatInterval().isNegative()) return true;
         return lastPongAt.plus(config.heartbeatInterval().multipliedBy(2)).isAfter(Instant.now(config.clock()));
+    }
+
+    /**
+     * Readiness is stricter than connection health: after reconnect the client is ready only after
+     * all locally tracked subscriptions have been restored successfully.
+     */
+    public boolean isReady() {
+        return isHealthy()
+                && subscriptionsReady.get()
+                && !subscriptionRestoreInProgress.get()
+                && lastSubscriptionRestoreError.get() == null;
     }
 
     private List<Subscription> subscribeAcross(List<String> symbols, List<String> keys, Function<String, String> channelFactory) {
@@ -623,6 +616,7 @@ public final class DnseWebSocketClient implements AutoCloseable {
     }
 
     private void failAuthentication(Throwable error) {
+        subscriptionsReady.set(false);
         transitionTo(ConnectionState.DISCONNECTED, error);
         CompletableFuture<Void> future = authenticationFuture;
         if (future != null && !future.isDone()) future.completeExceptionally(error);
@@ -685,6 +679,9 @@ public final class DnseWebSocketClient implements AutoCloseable {
     }
 
     private void scheduleReconnect(Throwable cause) {
+        subscriptionsReady.set(false);
+        subscriptionRestoreInProgress.set(false);
+
         if (intentionallyClosed.get() || !config.reconnectPolicy().enabled()) {
             emitError(cause);
             return;
@@ -692,7 +689,7 @@ public final class DnseWebSocketClient implements AutoCloseable {
         if (!reconnectScheduled.compareAndSet(false, true)) return;
 
         int attempt = ++reconnectAttempt;
-        if (attempt > config.reconnectPolicy().maxRetries()) {
+        if (!config.reconnectPolicy().unlimited() && attempt > config.reconnectPolicy().maxRetries()) {
             reconnectScheduled.set(false);
             transitionTo(ConnectionState.DISCONNECTED, cause);
             emitError(new RuntimeException("Max reconnect attempts exceeded", cause));
@@ -704,38 +701,63 @@ public final class DnseWebSocketClient implements AutoCloseable {
         long delay = config.reconnectPolicy().delayForAttempt(attempt).toMillis();
         scheduler.schedule(() -> {
             reconnectScheduled.set(false);
+            if (intentionallyClosed.get()) return;
             sessionId = null;
             transitionTo(ConnectionState.CONNECTING, null);
             connectAndAuthenticate().thenRun(() -> {
-                reconnectAttempt = 0;
-                restoreSubscriptions();
-            }).exceptionally(error -> { scheduleReconnect(unwrap(error)); return null; });
+                subscriptionRestoreInProgress.set(true);
+                lastSubscriptionRestoreError.set(null);
+                restoreSubscriptionsAsync().whenComplete((ignored, restoreError) -> {
+                    subscriptionRestoreInProgress.set(false);
+                    if (restoreError == null) {
+                        reconnectAttempt = 0;
+                        subscriptionsReady.set(true);
+                        lastSubscriptionRestoreError.set(null);
+                        return;
+                    }
+
+                    Throwable restoreCause = unwrap(restoreError);
+                    subscriptionsReady.set(false);
+                    lastSubscriptionRestoreError.set(restoreCause);
+                    closeFailedTransport();
+                    scheduleReconnect(restoreCause);
+                });
+            }).exceptionally(error -> {
+                closeFailedTransport();
+                scheduleReconnect(unwrap(error));
+                return null;
+            });
         }, delay, TimeUnit.MILLISECONDS);
     }
 
-    private void restoreSubscriptions() {
+    private CompletableFuture<Void> restoreSubscriptionsAsync() {
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (SubscriptionManager.Entry entry : subscriptions.snapshot()) {
             if (entry.symbols().isEmpty()) {
-                sendSubscriptionForRestore(entry.channel(), List.of());
+                chain = chain.thenCompose(ignored -> sendSubscriptionForRestore(entry.channel(), List.of()));
                 continue;
             }
             for (List<String> batch : batches(entry.symbols(), entry.restoreBatchSize())) {
-                sendSubscriptionForRestore(entry.channel(), batch);
+                chain = chain.thenCompose(ignored -> sendSubscriptionForRestore(entry.channel(), batch));
             }
         }
+        return chain;
     }
 
-    private void sendSubscriptionForRestore(String channel, List<String> symbols) {
-        send(Map.of("action", "subscribe", "channels", List.of(Map.of("name", channel, "symbols", List.copyOf(symbols)))))
-                .exceptionally(error -> {
-                    emitError(new DnseSubscriptionException(
-                            "Failed to restore subscription for " + channel,
-                            channel,
-                            symbols,
-                            null,
-                            false,
-                            unwrap(error)
-                    ));
+    private CompletableFuture<Void> sendSubscriptionForRestore(String channel, List<String> symbols) {
+        List<String> copy = List.copyOf(symbols);
+        return send(Map.of("action", "subscribe", "channels", List.of(Map.of("name", channel, "symbols", copy))))
+                .handle((ignored, error) -> {
+                    if (error != null) {
+                        throw new CompletionException(new DnseSubscriptionException(
+                                "Failed to restore subscription for " + channel,
+                                channel,
+                                copy,
+                                null,
+                                false,
+                                unwrap(error)
+                        ));
+                    }
                     return null;
                 });
     }
@@ -766,9 +788,97 @@ public final class DnseWebSocketClient implements AutoCloseable {
         return List.copyOf(result);
     }
 
-    private boolean isTradeChannel(String channel) {
+    private CompletableFuture<SubscriptionReconciliationResult> reconcileByBoardAsync(
+            Map<String, List<String>> desiredSymbolsByBoard,
+            SubscriptionOptions options,
+            Function<String, String> channelFactory,
+            String channelPrefix
+    ) {
+        Objects.requireNonNull(desiredSymbolsByBoard, "desiredSymbolsByBoard");
+        Objects.requireNonNull(options, "options");
+        if (state.get() != ConnectionState.AUTHENTICATED) {
+            return CompletableFuture.failedFuture(
+                    new DnseSubscriptionException("Must authenticate before reconciling subscriptions")
+            );
+        }
+
+        Map<String, List<String>> desiredByChannel = new LinkedHashMap<>();
+        desiredSymbolsByBoard.forEach((board, symbols) -> desiredByChannel.put(
+                channelFactory.apply(board),
+                deduplicate(Objects.requireNonNull(symbols, "symbols"))
+        ));
+
+        Map<String, SubscriptionManager.Entry> currentChannels = new LinkedHashMap<>();
+        for (SubscriptionManager.Entry entry : subscriptions.snapshot()) {
+            if (isSubscriptionChannel(entry.channel(), channelPrefix)) {
+                currentChannels.put(entry.channel(), entry);
+            }
+        }
+
+        Set<String> channels = new LinkedHashSet<>(desiredByChannel.keySet());
+        channels.addAll(currentChannels.keySet());
+
+        int[] desiredCount = {0};
+        int[] addedCount = {0};
+        int[] removedCount = {0};
+        int[] unchangedCount = {0};
+        int[] subscribeOperations = {0};
+        int[] unsubscribeOperations = {0};
+        int[] activeChannels = {0};
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (String channel : channels) {
+            List<String> desired = desiredByChannel.getOrDefault(channel, List.of());
+            SubscriptionManager.Entry currentEntry = currentChannels.get(channel);
+            List<String> current = currentEntry == null ? List.of() : currentEntry.symbols();
+            boolean currentChannelOnly = currentEntry != null && current.isEmpty();
+
+            List<String> added = difference(desired, current);
+            List<String> removed = difference(current, desired);
+            int unchanged = intersectionSize(current, desired);
+
+            desiredCount[0] += desired.size();
+            addedCount[0] += added.size();
+            removedCount[0] += removed.size();
+            unchangedCount[0] += unchanged;
+            if (!desired.isEmpty()) activeChannels[0]++;
+
+            if (currentChannelOnly) {
+                chain = chain.thenCompose(ignored -> unsubscribeChannel(channel, List.of()));
+                unsubscribeOperations[0]++;
+            }
+
+            for (List<String> batch : batches(added, options.batchSize())) {
+                chain = chain.thenCompose(ignored ->
+                        subscribeAsyncInternal(channel, batch, options.batchSize()).thenAccept(result -> {}));
+                subscribeOperations[0]++;
+            }
+
+            for (List<String> batch : batches(removed, options.batchSize())) {
+                chain = chain.thenCompose(ignored -> unsubscribeChannel(channel, batch));
+                unsubscribeOperations[0]++;
+            }
+
+            chain = chain.thenRun(() -> {
+                if (desired.isEmpty()) subscriptions.remove(channel);
+                else subscriptions.put(channel, desired, options.batchSize());
+            });
+        }
+
+        return chain.thenApply(ignored -> new SubscriptionReconciliationResult(
+                desiredCount[0],
+                addedCount[0],
+                removedCount[0],
+                unchangedCount[0],
+                subscribeOperations[0],
+                unsubscribeOperations[0],
+                activeChannels[0]
+        ));
+    }
+
+    private boolean isSubscriptionChannel(String channel, String prefix) {
         return channel != null
-                && channel.startsWith("tick.")
+                && channel.startsWith(prefix)
                 && channel.endsWith("." + config.encoding().wireName());
     }
 
@@ -831,6 +941,8 @@ public final class DnseWebSocketClient implements AutoCloseable {
 
     public CompletableFuture<Void> disconnect() {
         intentionallyClosed.set(true);
+        subscriptionsReady.set(false);
+        subscriptionRestoreInProgress.set(false);
         reconnectScheduled.set(false);
         initialConnectionInProgress.set(false);
         CompletableFuture<Void> pendingInitial = initialConnectionFuture;
@@ -881,14 +993,17 @@ public final class DnseWebSocketClient implements AutoCloseable {
         public void onClosed(int code, String reason) {
             if (stale() || intentionallyClosed.get()) return;
             RuntimeException cause = new DnseConnectionException("WebSocket closed: " + code + " " + reason);
+            subscriptionsReady.set(false);
             if (!authFuture.isDone()) {
                 authFuture.completeExceptionally(cause);
                 return;
             }
-            if (code == 1000 || code == 1001) {
+            if (code == 1000) {
                 transitionTo(ConnectionState.DISCONNECTED, null);
                 return;
             }
+            // 1001 (Going Away) commonly occurs during gateway restarts and is recoverable for a
+            // long-running client. Explicit application shutdown is already guarded above.
             scheduleReconnect(cause);
         }
 
