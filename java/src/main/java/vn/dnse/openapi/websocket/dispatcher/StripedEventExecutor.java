@@ -17,6 +17,7 @@ import java.util.function.Consumer;
  * when its queue is full the producer blocks instead of executing out of order or growing memory indefinitely.</p>
  */
 public final class StripedEventExecutor implements AutoCloseable {
+    private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
     private final ThreadPoolExecutor[] workers;
     private final int queueCapacity;
     private final Consumer<BackpressureEvent> backpressureListener;
@@ -107,8 +108,34 @@ public final class StripedEventExecutor implements AutoCloseable {
         }
     }
 
+    /**
+     * Stops accepting new callbacks, drains queued callbacks up to the supplied timeout, then force-stops
+     * any worker that is still running. A single shared deadline is used across all stripes.
+     */
+    public void closeGracefully(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isNegative()) throw new IllegalArgumentException("timeout must be >= 0");
+
+        for (ThreadPoolExecutor worker : workers) worker.shutdown();
+
+        long deadline = System.nanoTime() + timeout.toNanos();
+        boolean interrupted = false;
+        for (ThreadPoolExecutor worker : workers) {
+            long remaining = Math.max(0L, deadline - System.nanoTime());
+            try {
+                if (!worker.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
+                    worker.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                interrupted = true;
+                worker.shutdownNow();
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt();
+    }
+
     @Override
     public void close() {
-        for (ThreadPoolExecutor worker : workers) worker.shutdownNow();
+        closeGracefully(DEFAULT_SHUTDOWN_TIMEOUT);
     }
 }
