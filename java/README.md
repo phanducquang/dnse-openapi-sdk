@@ -1,6 +1,6 @@
 # DNSE OpenAPI Java SDK
 
-Java 17 SDK for DNSE OpenAPI with production-ready WebSocket market/private realtime flows and the first REST milestone (signed Market Data read APIs), ported from the Python SDK.
+Java 17 SDK for DNSE OpenAPI with production-ready WebSocket market/private realtime flows and REST endpoint parity with the current Python SDK.
 
 The core library is framework-independent: it does not depend on Spring Boot, Micrometer, Kafka, Redis or a database. Those integrations stay in the consuming application.
 
@@ -33,6 +33,8 @@ For detailed WebSocket integration and production usage, see [USAGE.md](USAGE.md
 - REST dry-run request preview
 - raw REST status/body responses, including HTTP error responses
 - Market Data REST APIs: instruments, secdef, trades, volume profile, expected price, quotes, foreign trading, market index, OHLC, latest trade/quote, close price, working dates and latest trading session
+- Account/read REST APIs: accounts, balances, loan packages, positions, orders, executions, order history, corporate actions, PPSE and care-by
+- Trading REST wrappers: OTP/trading-token, position PnL config, place/replace/cancel order and close position
 
 ## Requirements
 
@@ -411,12 +413,12 @@ try (DnseRestClient rest = new DnseRestClient(restConfig)) {
 }
 ```
 
-The current REST layer deliberately returns raw status/body for Python parity. It supports dry-run request preview and the Market Data read endpoints documented in [REST_USAGE.md](REST_USAGE.md).
+The current REST layer deliberately returns raw status/body for Python parity. It supports dry-run request preview and all public endpoint methods currently present in the Python REST client; see [REST_USAGE.md](REST_USAGE.md).
 
 ## Current scope
 
-WebSocket conversion is feature-complete at code/CI level, pending live-gateway validation. REST-0 and REST-1 are now implemented: signing/transport/dry-run plus Market Data read APIs including `getInstruments`.
+WebSocket conversion is feature-complete at code/CI level, pending live-gateway validation. REST signing/transport/dry-run and all public endpoint wrappers from the current Python REST client are now implemented.
 
-Account/read APIs and trading write APIs remain the next REST milestones.
+The main optional follow-up is typed REST response DTOs plus live-gateway validation of the converted endpoints.
 
 See [USAGE.md](USAGE.md) for the WebSocket integration guide and [REST_USAGE.md](REST_USAGE.md) for REST usage.
