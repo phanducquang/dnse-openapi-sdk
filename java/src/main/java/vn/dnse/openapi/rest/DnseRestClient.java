@@ -355,6 +355,608 @@ public final class DnseRestClient implements AutoCloseable {
         return getLatestSession(tscProductGroupId, boardId);
     }
 
+    // -------------------------------------------------------------------------
+    // Account/read APIs
+    // -------------------------------------------------------------------------
+
+    public DnseRestResponse getAccounts() {
+        return getAccounts(false);
+    }
+
+    public DnseRestResponse getAccounts(boolean dryRun) {
+        return get("/accounts", Map.of(), null, dryRun);
+    }
+
+    public DnseRestResponse getBalances(String accountNo) {
+        return getBalances(accountNo, false);
+    }
+
+    public DnseRestResponse getBalances(String accountNo, boolean dryRun) {
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/balances",
+                Map.of(),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getLoanPackages(
+            String accountNo,
+            String marketType,
+            String symbol
+    ) {
+        return getLoanPackages(accountNo, marketType, symbol, false);
+    }
+
+    public DnseRestResponse getLoanPackages(
+            String accountNo,
+            String marketType,
+            String symbol,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        putIfNotNull(query, "symbol", symbol);
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/loan-packages",
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getPositions(String accountNo, String marketType) {
+        return getPositions(accountNo, marketType, false);
+    }
+
+    public DnseRestResponse getPositions(
+            String accountNo,
+            String marketType,
+            boolean dryRun
+    ) {
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/positions",
+                Map.of("marketType", required(marketType, "marketType")),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getPositionById(
+            String marketType,
+            String positionId,
+            String version,
+            boolean dryRun
+    ) {
+        return get(
+                "/positions/" + required(positionId, "positionId"),
+                Map.of("marketType", required(marketType, "marketType")),
+                version,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getPositionById(String marketType, String positionId) {
+        return getPositionById(marketType, positionId, null, false);
+    }
+
+    public DnseRestResponse getPositionPnlConfigs(
+            String marketType,
+            String positionId,
+            String version,
+            boolean dryRun
+    ) {
+        return get(
+                "/positions/" + required(positionId, "positionId") + "/pnl-configs",
+                Map.of("marketType", required(marketType, "marketType")),
+                version,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getPositionPnlConfigs(String marketType, String positionId) {
+        return getPositionPnlConfigs(marketType, positionId, null, false);
+    }
+
+    public DnseRestResponse getOrders(
+            String accountNo,
+            String marketType,
+            String orderCategory,
+            Integer pageIndex,
+            Integer pageSize
+    ) {
+        return getOrders(
+                accountNo,
+                marketType,
+                orderCategory,
+                pageIndex,
+                pageSize,
+                false
+        );
+    }
+
+    public DnseRestResponse getOrders(
+            String accountNo,
+            String marketType,
+            String orderCategory,
+            Integer pageIndex,
+            Integer pageSize,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        putIfNotNull(query, "orderCategory", orderCategory);
+        putIfNotNull(query, "pageIndex", pageIndex);
+        putIfNotNull(query, "pageSize", pageSize);
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/orders",
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getOrderDetail(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String orderCategory
+    ) {
+        return getOrderDetail(
+                accountNo,
+                orderId,
+                marketType,
+                orderCategory,
+                false
+        );
+    }
+
+    public DnseRestResponse getOrderDetail(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String orderCategory,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        putIfNotNull(query, "orderCategory", orderCategory);
+        return get(
+                "/accounts/" + required(accountNo, "accountNo")
+                        + "/orders/" + required(orderId, "orderId"),
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getExecutionDetail(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String orderCategory
+    ) {
+        return getExecutionDetail(
+                accountNo,
+                orderId,
+                marketType,
+                orderCategory,
+                false
+        );
+    }
+
+    public DnseRestResponse getExecutionDetail(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String orderCategory,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        if (orderCategory != null && !orderCategory.isBlank()) {
+            query.put("orderCategory", orderCategory);
+        }
+        return get(
+                "/accounts/" + required(accountNo, "accountNo")
+                        + "/executions/" + required(orderId, "orderId"),
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getOrderHistory(
+            String accountNo,
+            String marketType,
+            String fromDate,
+            String toDate,
+            Integer pageSize,
+            Integer pageIndex
+    ) {
+        return getOrderHistory(
+                accountNo,
+                marketType,
+                fromDate,
+                toDate,
+                pageSize,
+                pageIndex,
+                false
+        );
+    }
+
+    public DnseRestResponse getOrderHistory(
+            String accountNo,
+            String marketType,
+            String fromDate,
+            String toDate,
+            Integer pageSize,
+            Integer pageIndex,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        putIfNotNull(query, "from", fromDate);
+        putIfNotNull(query, "to", toDate);
+        putIfNotNull(query, "pageSize", pageSize);
+        putIfNotNull(query, "pageIndex", pageIndex);
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/orders/history",
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getCorporateActionHistory(
+            String accountNo,
+            String symbol,
+            String caType,
+            String caStatus,
+            Integer pageIndex,
+            Integer pageSize
+    ) {
+        return getCorporateActionHistory(
+                accountNo,
+                symbol,
+                caType,
+                caStatus,
+                pageIndex,
+                pageSize,
+                false
+        );
+    }
+
+    public DnseRestResponse getCorporateActionHistory(
+            String accountNo,
+            String symbol,
+            String caType,
+            String caStatus,
+            Integer pageIndex,
+            Integer pageSize,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        putIfNotNull(query, "symbol", symbol);
+        putIfNotNull(query, "caType", caType);
+        putIfNotNull(query, "caStatus", caStatus);
+        putIfNotNull(query, "pageIndex", pageIndex);
+        putIfNotNull(query, "pageSize", pageSize);
+        return get(
+                "/accounts/" + required(accountNo, "accountNo")
+                        + "/corporate-action-history",
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getPpse(
+            String accountNo,
+            String marketType,
+            String symbol,
+            Object price,
+            Object loanPackageId
+    ) {
+        return getPpse(
+                accountNo,
+                marketType,
+                symbol,
+                price,
+                loanPackageId,
+                false
+        );
+    }
+
+    public DnseRestResponse getPpse(
+            String accountNo,
+            String marketType,
+            String symbol,
+            Object price,
+            Object loanPackageId,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        query.put("symbol", required(symbol, "symbol"));
+        query.put("price", requiredObject(price, "price"));
+        query.put("loanPackageId", requiredObject(loanPackageId, "loanPackageId"));
+        return get(
+                "/accounts/" + required(accountNo, "accountNo") + "/ppse",
+                query,
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse getListCareBy() {
+        return getListCareBy(false);
+    }
+
+    public DnseRestResponse getListCareBy(boolean dryRun) {
+        return get("/brokers/accounts/care-by", Map.of(), null, dryRun);
+    }
+
+    // -------------------------------------------------------------------------
+    // Trading-token and write APIs
+    // -------------------------------------------------------------------------
+
+    public DnseRestResponse postPositionPnlConfigs(
+            String marketType,
+            String positionId,
+            Object payload,
+            String tradingToken,
+            String version,
+            boolean dryRun
+    ) {
+        return request(
+                "POST",
+                "/positions/" + required(positionId, "positionId") + "/pnl-configs",
+                Map.of("marketType", required(marketType, "marketType")),
+                Objects.requireNonNull(payload, "payload"),
+                tradingTokenHeaders(tradingToken),
+                version,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse postPositionPnlConfigs(
+            String marketType,
+            String positionId,
+            Object payload,
+            String tradingToken
+    ) {
+        return postPositionPnlConfigs(
+                marketType,
+                positionId,
+                payload,
+                tradingToken,
+                null,
+                false
+        );
+    }
+
+    public DnseRestResponse sendEmailOtp() {
+        return sendEmailOtp(false);
+    }
+
+    public DnseRestResponse sendEmailOtp(boolean dryRun) {
+        return request(
+                "POST",
+                "/registration/send-email-otp",
+                Map.of(),
+                null,
+                Map.of(),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse createTradingToken(String otpType, String passcode) {
+        return createTradingToken(otpType, passcode, false);
+    }
+
+    public DnseRestResponse createTradingToken(
+            String otpType,
+            String passcode,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> body = new LinkedHashMap<>();
+        body.put("otpType", required(otpType, "otpType"));
+        body.put("passcode", required(passcode, "passcode"));
+        return request(
+                "POST",
+                "/registration/trading-token",
+                Map.of(),
+                body,
+                Map.of(),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse postOrder(
+            String accountNo,
+            String marketType,
+            Object payload,
+            String tradingToken
+    ) {
+        return postOrder(
+                accountNo,
+                marketType,
+                payload,
+                tradingToken,
+                "NORMAL",
+                null,
+                false
+        );
+    }
+
+    public DnseRestResponse postOrder(
+            String accountNo,
+            String marketType,
+            Object payload,
+            String tradingToken,
+            String orderCategory,
+            String version,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        if (orderCategory != null && !orderCategory.isBlank()) {
+            query.put("orderCategory", orderCategory);
+        }
+        return request(
+                "POST",
+                "/accounts/" + required(accountNo, "accountNo") + "/orders",
+                query,
+                Objects.requireNonNull(payload, "payload"),
+                tradingTokenHeaders(tradingToken),
+                version,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse replaceOrder(
+            String accountNo,
+            String orderId,
+            String marketType,
+            Object payload,
+            String tradingToken,
+            String orderCategory,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        if (orderCategory != null && !orderCategory.isBlank()) {
+            query.put("orderCategory", orderCategory);
+        }
+        return request(
+                "PUT",
+                "/accounts/" + required(accountNo, "accountNo")
+                        + "/orders/" + required(orderId, "orderId"),
+                query,
+                Objects.requireNonNull(payload, "payload"),
+                tradingTokenHeaders(tradingToken),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse replaceOrder(
+            String accountNo,
+            String orderId,
+            String marketType,
+            Object payload,
+            String tradingToken
+    ) {
+        return replaceOrder(
+                accountNo,
+                orderId,
+                marketType,
+                payload,
+                tradingToken,
+                null,
+                false
+        );
+    }
+
+    /** Python-compatible alias for put_order. */
+    public DnseRestResponse putOrder(
+            String accountNo,
+            String orderId,
+            String marketType,
+            Object payload,
+            String tradingToken,
+            String orderCategory,
+            boolean dryRun
+    ) {
+        return replaceOrder(
+                accountNo,
+                orderId,
+                marketType,
+                payload,
+                tradingToken,
+                orderCategory,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse cancelOrder(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String tradingToken,
+            String orderCategory
+    ) {
+        return cancelOrder(
+                accountNo,
+                orderId,
+                marketType,
+                tradingToken,
+                orderCategory,
+                false
+        );
+    }
+
+    public DnseRestResponse cancelOrder(
+            String accountNo,
+            String orderId,
+            String marketType,
+            String tradingToken,
+            String orderCategory,
+            boolean dryRun
+    ) {
+        LinkedHashMap<String, Object> query = new LinkedHashMap<>();
+        query.put("marketType", required(marketType, "marketType"));
+        if (orderCategory != null && !orderCategory.isBlank()) {
+            query.put("orderCategory", orderCategory);
+        }
+        return request(
+                "DELETE",
+                "/accounts/" + required(accountNo, "accountNo")
+                        + "/orders/" + required(orderId, "orderId"),
+                query,
+                null,
+                tradingTokenHeaders(tradingToken),
+                null,
+                dryRun
+        );
+    }
+
+    public DnseRestResponse closePosition(
+            String positionId,
+            String marketType,
+            String tradingToken,
+            String version
+    ) {
+        return closePosition(
+                positionId,
+                marketType,
+                tradingToken,
+                version,
+                false
+        );
+    }
+
+    public DnseRestResponse closePosition(
+            String positionId,
+            String marketType,
+            String tradingToken,
+            String version,
+            boolean dryRun
+    ) {
+        return request(
+                "POST",
+                "/positions/" + required(positionId, "positionId") + "/close",
+                Map.of("marketType", required(marketType, "marketType")),
+                null,
+                tradingTokenHeaders(tradingToken),
+                version,
+                dryRun
+        );
+    }
+
     /** Low-level signed GET helper for endpoints not yet covered by a typed convenience method. */
     public DnseRestResponse get(
             String path,
@@ -473,6 +1075,15 @@ public final class DnseRestClient implements AutoCloseable {
 
     private static void putIfNotNull(Map<String, Object> target, String key, Object value) {
         if (value != null) target.put(key, value);
+    }
+
+    private static Map<String, String> tradingTokenHeaders(String tradingToken) {
+        return Map.of("trading-token", required(tradingToken, "tradingToken"));
+    }
+
+    private static Object requiredObject(Object value, String name) {
+        if (value == null) throw new IllegalArgumentException(name + " must not be null");
+        return value;
     }
 
     private static String required(String value, String name) {
