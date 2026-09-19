@@ -3,14 +3,27 @@ name: Java SDK Live Smoke
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Live smoke target
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - websocket
+          - rest
       symbol:
-        description: Symbol to subscribe after authentication
+        description: Symbol used by live smoke tests
         required: false
         default: FPT
       board:
-        description: Board ID
+        description: WebSocket board ID
         required: false
         default: G1
+      api_version:
+        description: DNSE REST API version
+        required: false
+        default: '2026-07-23'
 
 jobs:
   live-smoke:
@@ -19,11 +32,11 @@ jobs:
       run:
         working-directory: java
     env:
-      DNSE_LIVE_TEST: 'true'
       DNSE_API_KEY: ${{ secrets.DNSE_API_KEY }}
       DNSE_API_SECRET: ${{ secrets.DNSE_API_SECRET }}
       DNSE_TEST_SYMBOL: ${{ inputs.symbol }}
       DNSE_TEST_BOARD: ${{ inputs.board }}
+      DNSE_API_VERSION: ${{ inputs.api_version }}
 
     steps:
       - name: Checkout
@@ -48,4 +61,13 @@ jobs:
           gradle-version: '8.12.1'
 
       - name: Run DNSE WebSocket live smoke test
+        if: ${{ inputs.mode == 'both' || inputs.mode == 'websocket' }}
+        env:
+          DNSE_LIVE_TEST: 'true'
         run: gradle test --tests vn.dnse.openapi.websocket.DnseWebSocketLiveSmokeTest --stacktrace
+
+      - name: Run DNSE REST live smoke test
+        if: ${{ inputs.mode == 'both' || inputs.mode == 'rest' }}
+        env:
+          DNSE_REST_LIVE_TEST: 'true'
+        run: gradle test --tests vn.dnse.openapi.rest.DnseRestLiveSmokeTest --stacktrace
