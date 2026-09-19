@@ -360,6 +360,74 @@ DnseRestResponse preview = client.postOrder(
 
 The last argument above is `dryRun=true`, so no order is sent; it only builds the signed request preview.
 
+## Typed Instruments API
+
+The raw `DnseRestClient` remains unchanged for full wire compatibility. A separate typed layer is available for instrument discovery:
+
+```java
+try (DnseMarketDataApi marketData = new DnseMarketDataApi(config)) {
+    InstrumentListResponse response = marketData.getInstruments(
+            null,
+            null,
+            null,
+            null,
+            500,
+            1
+    );
+
+    for (Instrument instrument : response.instruments()) {
+        System.out.printf(
+                "%s board=%s market=%s group=%s%n",
+                instrument.symbol(),
+                instrument.boardId(),
+                instrument.marketId(),
+                instrument.securityGroupId()
+        );
+    }
+}
+```
+
+The typed parser is intentionally tolerant until live gateway schemas have been fully validated. It accepts a top-level array and common list envelopes such as `instruments`, `items`, `content` and `data`, including a nested `data` object. The complete decoded JSON root remains available through:
+
+```java
+response.rawRoot();
+```
+
+so callers can inspect fields that are not yet modeled.
+
+Typed calls require HTTP success. Non-2xx responses raise:
+
+```java
+DnseRestHttpException
+```
+
+which preserves both `statusCode()` and `responseBody()`. The raw client continues returning non-2xx status/body without throwing.
+
+### Build a WebSocket universe directly
+
+```java
+Map<String, List<String>> symbolsByBoard =
+        response.symbolsByBoard();
+
+client.subscribeTradeExtra(
+        symbolsByBoard,
+        SubscriptionOptions.builder()
+                .batchSize(200)
+                .build()
+);
+```
+
+Symbols are deduplicated per board while preserving response order. Instruments with a missing/blank symbol or board are skipped.
+
+The SDK does not guess which status means active/tradable. After validating the live status semantics, callers can filter explicitly:
+
+```java
+Map<String, List<String>> tradableSymbols =
+        response.symbolsByBoard(instrument ->
+                isTradable(instrument)
+        );
+```
+
 ## REST + WebSocket all-symbol flow
 
 The REST client can now supply the instrument source for an application that wants to subscribe the WebSocket SDK to the market universe:
