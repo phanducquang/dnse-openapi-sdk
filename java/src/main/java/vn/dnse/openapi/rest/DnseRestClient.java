@@ -533,6 +533,20 @@ public final class DnseRestClient implements AutoCloseable {
     public DnseRestResponse getExecutionDetail(
             String accountNo,
             String orderId,
+            String marketType
+    ) {
+        return getExecutionDetail(
+                accountNo,
+                orderId,
+                marketType,
+                "NORMAL",
+                false
+        );
+    }
+
+    public DnseRestResponse getExecutionDetail(
+            String accountNo,
+            String orderId,
             String marketType,
             String orderCategory
     ) {
