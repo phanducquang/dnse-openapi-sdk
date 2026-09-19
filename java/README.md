@@ -14,10 +14,12 @@ For detailed integration and production usage, see [USAGE.md](USAGE.md).
 - typed market/private event models and handlers
 - lifecycle state callbacks
 - initial connection policies: `FAIL_FAST` and `RETRY`
-- exponential-backoff runtime reconnect and re-authentication
-- automatic subscription restoration after reconnect
+- configurable welcome/authentication handshake timeout
+- bounded or unlimited exponential-backoff runtime reconnect and re-authentication
+- peer `1001 Going Away` reconnect handling for gateway restarts
+- automatic subscription restoration after reconnect with explicit readiness state
 - single, async and bulk/batched subscriptions
-- runtime Trade-universe reconciliation (`added` / `removed` / `unchanged`)
+- runtime Trade and TradeExtra universe reconciliation (`added` / `removed` / `unchanged`)
 - reconnect-safe subscription batch restoration
 - explicit `TRANSPORT_ACCEPTED` subscribe confirmation semantics
 - structured server-reported subscription errors
@@ -155,20 +157,19 @@ DnseWebSocketConfig config = DnseWebSocketConfig.builder()
         .baseUrl("wss://ws-openapi.dnse.com.vn")
         .encoding(MessageEncoding.MSGPACK)
         .connectTimeout(Duration.ofSeconds(30))
+        .handshakeTimeout(Duration.ofSeconds(30))
         .heartbeatInterval(Duration.ofSeconds(25))
         .dispatchWorkers(16)
         .queueCapacity(4_000)
         .initialConnectionPolicy(InitialConnectionPolicy.RETRY)
-        .reconnectPolicy(new ReconnectPolicy(
-                true,
-                10,
+        .reconnectPolicy(ReconnectPolicy.forever(
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(60)
         ))
         .build();
 ```
 
-`FAIL_FAST` remains the SDK default for backward-compatible startup behavior. `RETRY` is recommended for services that should tolerate the gateway being temporarily unavailable during application startup. Authentication failures are not retried.
+`FAIL_FAST` remains the SDK default for backward-compatible startup behavior. `RETRY` is recommended for services that should tolerate the gateway being temporarily unavailable during application startup. Authentication failures are not retried. `ReconnectPolicy.defaults()` still mirrors the Python SDK's 10-retry behavior; long-running ingestion services can opt into `ReconnectPolicy.forever(...)`.
 
 ## Subscribe an all-market universe
 
@@ -188,6 +189,12 @@ BulkSubscriptionResult result = client.subscribeTrades(
         symbolsByBoard,
         options
 );
+
+// Enhanced matched trades (tick_extra.*) use the same bulk batching semantics:
+BulkSubscriptionResult extraResult = client.subscribeTradeExtra(
+        symbolsByBoard,
+        options
+);
 ```
 
 The SDK deduplicates symbols, sends bounded batches sequentially and remembers the batch size for reconnect restoration.
@@ -200,6 +207,12 @@ When your instrument list changes, call:
 
 ```java
 SubscriptionReconciliationResult result = client.reconcileTrades(
+        desiredSymbolsByBoard,
+        options
+);
+
+// For tick_extra.*:
+SubscriptionReconciliationResult extraResult = client.reconcileTradeExtra(
         desiredSymbolsByBoard,
         options
 );
@@ -240,7 +253,10 @@ AUTHENTICATED
   -> AUTHENTICATING
   -> AUTHENTICATED
   -> restore active subscriptions in safe batches
+  -> READY
 ```
+
+A peer `1001 Going Away` close is treated as recoverable unless the application explicitly closed the client. During reconnect/restore, `isHealthy()` may already reflect an authenticated transport while `isReady()` remains false until all locally tracked subscriptions have been queued for restoration successfully.
 
 Do not add a competing reconnect loop in Spring or application code.
 
@@ -286,7 +302,11 @@ Framework-neutral metrics callbacks are available through `DnseWebSocketMetricsL
 client.state();
 client.sessionId();
 client.lastPongAt();
-client.isHealthy();
+client.isHealthy();          // transport/auth/heartbeat
+client.isReady();            // healthy + subscriptions restored
+client.subscriptionsReady();
+client.subscriptionRestoreInProgress();
+client.lastSubscriptionRestoreError();
 ```
 
 for its own health/readiness integration.
@@ -326,9 +346,12 @@ The automated suite covers:
 - runtime disconnect -> reconnect -> re-auth -> subscription restore
 - initial connection `FAIL_FAST`
 - initial connection `RETRY` until authentication succeeds
-- bulk subscription batching
-- reconnect-safe batch restoration
-- runtime Trade-universe reconciliation and converged local state
+- welcome/authentication handshake timeout
+- bounded and unlimited reconnect-policy behavior
+- reconnect on peer `1001 Going Away`
+- bulk Trade and TradeExtra subscription batching
+- reconnect-safe batch restoration and readiness
+- runtime Trade/TradeExtra universe reconciliation and converged local state
 - same-symbol ordering under queue pressure
 - partial unsubscribe state
 - state-change callbacks
@@ -336,6 +359,7 @@ The automated suite covers:
 - structured server subscription errors
 - dispatcher/backpressure statistics
 - graceful WebSocket close handshake
+- graceful draining of already queued callback work before forced dispatcher shutdown
 
 ## Live smoke test
 
