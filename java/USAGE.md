@@ -1,6 +1,6 @@
 # DNSE OpenAPI Java SDK - Usage Guide
 
-This guide covers building, running, integrating and operating the Java WebSocket SDK in a long-running application.
+This guide covers building, running, integrating and operating the Java WebSocket SDK in a long-running application. REST Market Data usage is documented separately in [REST_USAGE.md](REST_USAGE.md).
 
 ## 1. Requirements
 
@@ -491,4 +491,6 @@ Never commit API credentials to the repository.
 
 Implemented WebSocket scope includes authentication, JSON/MessagePack, typed events, subscriptions, bulk batching, handshake timeout, bounded/unlimited startup and runtime retry, reconnect/restore readiness, Trade/TradeExtra universe reconciliation, ordering, backpressure, graceful callback draining and observability hooks.
 
-REST support such as `get_instruments` remains a separate next milestone. Until it is implemented in the Java SDK, the consuming application must provide the instrument universe used for all-market subscriptions.
+REST signing/transport and Market Data read APIs are now implemented under `vn.dnse.openapi.rest`, including `getInstruments`. See [REST_USAGE.md](REST_USAGE.md).
+
+The next REST work is account/read APIs followed by trading-token/order/position write APIs.
