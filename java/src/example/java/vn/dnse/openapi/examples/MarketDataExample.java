@@ -45,11 +45,10 @@ public final class MarketDataExample {
                 .baseUrl(baseUrl)
                 .encoding(encoding)
                 .connectTimeout(Duration.ofSeconds(30))
+                .handshakeTimeout(Duration.ofSeconds(30))
                 .heartbeatInterval(Duration.ofSeconds(25))
                 .initialConnectionPolicy(initialConnectionPolicy)
-                .reconnectPolicy(new ReconnectPolicy(
-                        true,
-                        10,
+                .reconnectPolicy(ReconnectPolicy.forever(
                         Duration.ofSeconds(1),
                         Duration.ofSeconds(60)
                 ))
@@ -109,7 +108,7 @@ public final class MarketDataExample {
                     initialConnectionPolicy
             );
 
-            // In RETRY mode this completes only after authentication succeeds or the retry budget is exhausted.
+            // In RETRY + forever mode this completes after authentication succeeds or the client is closed.
             client.connect().join();
 
             if (client.state() != ConnectionState.AUTHENTICATED) {
