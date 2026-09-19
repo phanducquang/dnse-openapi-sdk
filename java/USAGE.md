@@ -124,13 +124,12 @@ DnseWebSocketConfig config = DnseWebSocketConfig.builder()
         .baseUrl("wss://ws-openapi.dnse.com.vn")
         .encoding(MessageEncoding.MSGPACK)
         .connectTimeout(Duration.ofSeconds(30))
+        .handshakeTimeout(Duration.ofSeconds(30))
         .heartbeatInterval(Duration.ofSeconds(25))
         .dispatchWorkers(16)
         .queueCapacity(4_000)
         .initialConnectionPolicy(InitialConnectionPolicy.RETRY)
-        .reconnectPolicy(new ReconnectPolicy(
-                true,
-                10,
+        .reconnectPolicy(ReconnectPolicy.forever(
                 Duration.ofSeconds(1),
                 Duration.ofSeconds(60)
         ))
@@ -153,13 +152,14 @@ For a long-running service use:
 
 ```java
 .initialConnectionPolicy(InitialConnectionPolicy.RETRY)
-.reconnectPolicy(new ReconnectPolicy(
-        true,
-        10,
+.handshakeTimeout(Duration.ofSeconds(30))
+.reconnectPolicy(ReconnectPolicy.forever(
         Duration.ofSeconds(1),
         Duration.ofSeconds(60)
 ))
 ```
+
+`ReconnectPolicy.defaults()` remains compatible with the Python SDK and stops after 10 retries. `ReconnectPolicy.forever(...)` is intended for continuously running ingestion services that must recover after a prolonged gateway outage.
 
 Startup flow becomes:
 
@@ -178,9 +178,11 @@ AUTHENTICATED
 
 Important behavior:
 
-- `RETRY` uses `ReconnectPolicy.enabled`, `maxRetries`, `initialDelay` and `maxDelay`.
+- `RETRY` uses the configured reconnect policy and exponential backoff.
+- `handshakeTimeout` bounds the wait for the DNSE welcome/authentication exchange after the WebSocket opens.
 - Authentication failures are not retried. Invalid credentials should fail instead of repeatedly hitting the gateway.
 - After the first successful authentication, runtime disconnect handling uses the normal reconnect/re-auth/restore flow.
+- A peer `1001 Going Away` close is recoverable for long-running clients; explicit application shutdown still suppresses reconnect.
 
 ## 7. Event handlers
 
@@ -238,6 +240,12 @@ SubscriptionOptions options = SubscriptionOptions.builder()
         .build();
 
 BulkSubscriptionResult result = client.subscribeTrades(
+        symbolsByBoard,
+        options
+);
+
+// Enhanced TradeExtra feed:
+BulkSubscriptionResult tradeExtraResult = client.subscribeTradeExtra(
         symbolsByBoard,
         options
 );
@@ -313,7 +321,16 @@ subscribe   G3 -> VCB
 
 After reconciliation, reconnect restoration uses the new desired universe. Calling `reconcileTrades()` again with the same universe produces zero subscribe/unsubscribe operations.
 
-This API currently reconciles Trade (`tick.*`) subscriptions. Other subscription types can still be managed with their typed subscribe/unsubscribe APIs.
+TradeExtra (`tick_extra.*`) supports the same SDK-managed reconciliation:
+
+```java
+SubscriptionReconciliationResult tradeExtraResult = client.reconcileTradeExtra(
+        desiredSymbolsByBoard,
+        options
+);
+```
+
+Both Trade and TradeExtra reconciliation update the local reconnect state to the converged desired universe.
 
 ## 11. Runtime reconnect behavior
 
@@ -328,7 +345,17 @@ RECONNECTING
   -> AUTHENTICATING
   -> AUTHENTICATED
   -> restore active subscriptions
+  -> READY
 ```
+
+The SDK exposes two related health concepts:
+
+```java
+client.isHealthy(); // authenticated transport + heartbeat
+client.isReady();   // healthy and subscription restoration complete
+```
+
+During reconnect, `isReady()` remains false until the local subscription universe has been restored successfully. Applications should normally use `isReady()` for feed readiness.
 
 Do not create a second reconnect loop in Spring, `@Scheduled`, or application code. Let the SDK own WebSocket reconnect/re-auth/re-subscribe behavior.
 
@@ -411,6 +438,10 @@ client.state();
 client.sessionId();
 client.lastPongAt();
 client.isHealthy();
+client.isReady();
+client.subscriptionsReady();
+client.subscriptionRestoreInProgress();
+client.lastSubscriptionRestoreError();
 ```
 
 A Spring Boot application can map these values into its own `HealthIndicator`, readiness group and Micrometer metrics without adding Spring dependencies to the SDK.
@@ -432,7 +463,7 @@ Or explicitly:
 client.close();
 ```
 
-`close()` intentionally disconnects, suppresses reconnect, shuts down SDK scheduler/dispatcher threads and performs the WebSocket close handshake.
+`close()` intentionally disconnects, suppresses reconnect and performs the WebSocket close handshake. The striped callback dispatcher first stops accepting new callbacks and drains already queued callback work for a bounded period before force-stopping remaining work.
 
 ## 15. Live smoke test
 
@@ -458,6 +489,6 @@ Never commit API credentials to the repository.
 
 ## 16. Current scope and next work
 
-Implemented WebSocket scope includes authentication, JSON/MessagePack, typed events, subscriptions, bulk batching, startup retry, runtime reconnect/restore, trade-universe reconciliation, ordering, backpressure and observability hooks.
+Implemented WebSocket scope includes authentication, JSON/MessagePack, typed events, subscriptions, bulk batching, handshake timeout, bounded/unlimited startup and runtime retry, reconnect/restore readiness, Trade/TradeExtra universe reconciliation, ordering, backpressure, graceful callback draining and observability hooks.
 
 REST support such as `get_instruments` remains a separate next milestone. Until it is implemented in the Java SDK, the consuming application must provide the instrument universe used for all-market subscriptions.
