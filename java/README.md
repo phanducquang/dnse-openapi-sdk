@@ -413,12 +413,31 @@ try (DnseRestClient rest = new DnseRestClient(restConfig)) {
 }
 ```
 
-The current REST layer deliberately returns raw status/body for Python parity. It supports dry-run request preview and all public endpoint methods currently present in the Python REST client; see [REST_USAGE.md](REST_USAGE.md).
+The raw REST layer deliberately returns status/body for Python parity and supports every public endpoint method currently present in the Python REST client. A separate typed Market Data layer now provides typed instrument discovery without changing those raw APIs; see [REST_USAGE.md](REST_USAGE.md).
+
+## Typed instrument discovery
+
+```java
+try (DnseMarketDataApi marketData = new DnseMarketDataApi(restConfig)) {
+    InstrumentListResponse instruments =
+            marketData.getInstruments(null, null, null, null, 500, 1);
+
+    Map<String, List<String>> symbolsByBoard =
+            instruments.symbolsByBoard();
+
+    webSocketClient.subscribeTradeExtra(
+            symbolsByBoard,
+            SubscriptionOptions.builder().batchSize(200).build()
+    );
+}
+```
+
+This typed layer is additive; `DnseRestClient.getInstruments(...)` still returns the raw status/body response.
 
 ## Current scope
 
-WebSocket conversion is feature-complete at code/CI level, pending live-gateway validation. REST signing/transport/dry-run and all public endpoint wrappers from the current Python REST client are now implemented.
+WebSocket conversion is feature-complete at code/CI level, pending live-gateway validation. REST signing/transport/dry-run and all public endpoint wrappers from the current Python REST client are implemented. Typed instrument discovery is now available as the first typed REST model.
 
-The main optional follow-up is typed REST response DTOs plus live-gateway validation of the converted endpoints.
+Further typed DTOs should be added after validating real REST response schemas, while the existing raw APIs remain the compatibility fallback.
 
 See [USAGE.md](USAGE.md) for the WebSocket integration guide and [REST_USAGE.md](REST_USAGE.md) for REST usage.
