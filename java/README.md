@@ -1,10 +1,10 @@
 # DNSE OpenAPI Java SDK
 
-Java 17 SDK for DNSE OpenAPI, currently focused on production-ready WebSocket market/private realtime flows with behavior ported from the Python SDK.
+Java 17 SDK for DNSE OpenAPI with production-ready WebSocket market/private realtime flows and the first REST milestone (signed Market Data read APIs), ported from the Python SDK.
 
 The core library is framework-independent: it does not depend on Spring Boot, Micrometer, Kafka, Redis or a database. Those integrations stay in the consuming application.
 
-For detailed integration and production usage, see [USAGE.md](USAGE.md).
+For detailed WebSocket integration and production usage, see [USAGE.md](USAGE.md). For REST signing and Market Data APIs, see [REST_USAGE.md](REST_USAGE.md).
 
 ## Features
 
@@ -29,6 +29,10 @@ For detailed integration and production usage, see [USAGE.md](USAGE.md).
 - heartbeat and health helpers
 - executable realtime example
 - MockWebServer integration tests and Python-generated MessagePack compatibility tests
+- signed REST client with Python-compatible Date/X-Signature/x-api-key/version headers
+- REST dry-run request preview
+- raw REST status/body responses, including HTTP error responses
+- Market Data REST APIs: instruments, secdef, trades, volume profile, expected price, quotes, foreign trading, market index, OHLC, latest trade/quote, close price, working dates and latest trading session
 
 ## Requirements
 
@@ -383,8 +387,36 @@ DNSE_TEST_BOARD    default: G1
 
 Never commit credentials or signatures into source/logs.
 
+## REST quick start
+
+```java
+DnseRestConfig restConfig = DnseRestConfig.builder()
+        .apiKey(System.getenv("DNSE_API_KEY"))
+        .apiSecret(System.getenv("DNSE_API_SECRET"))
+        .apiVersion("2026-07-23")
+        .build();
+
+try (DnseRestClient rest = new DnseRestClient(restConfig)) {
+    DnseRestResponse response = rest.getInstruments(
+            "FPT",
+            null,
+            null,
+            null,
+            20,
+            1
+    );
+
+    System.out.println(response.statusCode());
+    System.out.println(response.body());
+}
+```
+
+The current REST layer deliberately returns raw status/body for Python parity. It supports dry-run request preview and the Market Data read endpoints documented in [REST_USAGE.md](REST_USAGE.md).
+
 ## Current scope
 
-WebSocket functionality is the current completed milestone. REST support, including Java `get_instruments`, remains intentionally separate. Until that REST work is added, the consuming application supplies the instrument universe used for all-market subscription/reconciliation.
+WebSocket conversion is feature-complete at code/CI level, pending live-gateway validation. REST-0 and REST-1 are now implemented: signing/transport/dry-run plus Market Data read APIs including `getInstruments`.
 
-See [USAGE.md](USAGE.md) for the full integration guide.
+Account/read APIs and trading write APIs remain the next REST milestones.
+
+See [USAGE.md](USAGE.md) for the WebSocket integration guide and [REST_USAGE.md](REST_USAGE.md) for REST usage.
