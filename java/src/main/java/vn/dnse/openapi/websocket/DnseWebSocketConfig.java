@@ -11,7 +11,8 @@ import java.util.Objects;
  * @param apiSecret secret used only to compute the HMAC-SHA256 signature; it is never sent directly
  * @param baseUrl WebSocket gateway base URL, normally {@code wss://ws-openapi.dnse.com.vn}
  * @param encoding payload encoding used both in the connection query string and channel names
- * @param connectTimeout maximum time allowed for the underlying WebSocket connection attempt
+ * @param connectTimeout maximum time allowed for establishing the underlying WebSocket connection
+ * @param handshakeTimeout maximum time from WebSocket open until welcome/authentication completes
  * @param heartbeatInterval interval for client-initiated application heartbeat messages; zero disables it
  * @param dispatchWorkers number of striped single-thread workers used to preserve per-symbol ordering
  * @param queueCapacity maximum queued callbacks per dispatch stripe before backpressure blocks the producer
@@ -26,6 +27,7 @@ public record DnseWebSocketConfig(
         String baseUrl,
         MessageEncoding encoding,
         Duration connectTimeout,
+        Duration handshakeTimeout,
         Duration heartbeatInterval,
         int dispatchWorkers,
         int queueCapacity,
@@ -34,6 +36,25 @@ public record DnseWebSocketConfig(
         Clock clock,
         NonceGenerator nonceGenerator
 ) {
+    /** Source-compatible constructor for callers that used the pre-handshake-timeout record constructor. */
+    public DnseWebSocketConfig(
+            String apiKey,
+            String apiSecret,
+            String baseUrl,
+            MessageEncoding encoding,
+            Duration connectTimeout,
+            Duration heartbeatInterval,
+            int dispatchWorkers,
+            int queueCapacity,
+            ReconnectPolicy reconnectPolicy,
+            InitialConnectionPolicy initialConnectionPolicy,
+            Clock clock,
+            NonceGenerator nonceGenerator
+    ) {
+        this(apiKey, apiSecret, baseUrl, encoding, connectTimeout, connectTimeout, heartbeatInterval,
+                dispatchWorkers, queueCapacity, reconnectPolicy, initialConnectionPolicy, clock, nonceGenerator);
+    }
+
     /** Validates configuration before a client can be created. */
     public DnseWebSocketConfig {
         Objects.requireNonNull(apiKey, "apiKey");
@@ -41,11 +62,18 @@ public record DnseWebSocketConfig(
         Objects.requireNonNull(baseUrl, "baseUrl");
         Objects.requireNonNull(encoding, "encoding");
         Objects.requireNonNull(connectTimeout, "connectTimeout");
+        Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
         Objects.requireNonNull(heartbeatInterval, "heartbeatInterval");
         Objects.requireNonNull(reconnectPolicy, "reconnectPolicy");
         Objects.requireNonNull(initialConnectionPolicy, "initialConnectionPolicy");
         Objects.requireNonNull(clock, "clock");
         Objects.requireNonNull(nonceGenerator, "nonceGenerator");
+        if (connectTimeout.isNegative() || connectTimeout.isZero()) {
+            throw new IllegalArgumentException("connectTimeout must be > 0");
+        }
+        if (handshakeTimeout.isNegative() || handshakeTimeout.isZero()) {
+            throw new IllegalArgumentException("handshakeTimeout must be > 0");
+        }
         if (dispatchWorkers <= 0) throw new IllegalArgumentException("dispatchWorkers must be > 0");
         if (queueCapacity <= 0) throw new IllegalArgumentException("queueCapacity must be > 0");
     }
@@ -62,6 +90,7 @@ public record DnseWebSocketConfig(
         private String baseUrl = "wss://ws-openapi.dnse.com.vn";
         private MessageEncoding encoding = MessageEncoding.JSON;
         private Duration connectTimeout = Duration.ofSeconds(60);
+        private Duration handshakeTimeout = Duration.ofSeconds(60);
         private Duration heartbeatInterval = Duration.ofSeconds(25);
         private int dispatchWorkers = 6;
         private int queueCapacity = 10_000;
@@ -76,6 +105,7 @@ public record DnseWebSocketConfig(
         public Builder baseUrl(String value) { this.baseUrl = value; return this; }
         public Builder encoding(MessageEncoding value) { this.encoding = value; return this; }
         public Builder connectTimeout(Duration value) { this.connectTimeout = value; return this; }
+        public Builder handshakeTimeout(Duration value) { this.handshakeTimeout = value; return this; }
         public Builder heartbeatInterval(Duration value) { this.heartbeatInterval = value; return this; }
         public Builder dispatchWorkers(int value) { this.dispatchWorkers = value; return this; }
         public Builder queueCapacity(int value) { this.queueCapacity = value; return this; }
@@ -87,7 +117,7 @@ public record DnseWebSocketConfig(
         /** Builds and validates an immutable configuration. */
         public DnseWebSocketConfig build() {
             String normalized = baseUrl == null ? null : baseUrl.replaceAll("/+$", "");
-            return new DnseWebSocketConfig(apiKey, apiSecret, normalized, encoding, connectTimeout,
+            return new DnseWebSocketConfig(apiKey, apiSecret, normalized, encoding, connectTimeout, handshakeTimeout,
                     heartbeatInterval, dispatchWorkers, queueCapacity, reconnectPolicy, initialConnectionPolicy,
                     clock, nonceGenerator);
         }
