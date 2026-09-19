@@ -1,6 +1,6 @@
 # DNSE OpenAPI Java SDK - REST Usage
 
-The REST client is framework-independent Java 17 code under `vn.dnse.openapi.rest`. It ports the request-signing and Market Data read APIs from `python/dnse/api`.
+The REST client is framework-independent Java 17 code under `vn.dnse.openapi.rest`. It ports the request-signing behavior and all public REST endpoint methods from `python/dnse/api/client.py`.
 
 ## Configuration
 
@@ -103,7 +103,7 @@ Request previews contain authentication headers and must be treated as sensitive
 
 ## Converted Market Data APIs
 
-The following Python REST APIs are available in Java:
+The following Python Market Data REST APIs are available in Java:
 
 ```text
 getSecurityDefinition
@@ -269,6 +269,97 @@ client.getLatestSession(
 );
 ```
 
+## Account/read APIs
+
+The Python account/read APIs are also available:
+
+```text
+getAccounts
+getBalances
+getLoanPackages
+getPositions
+getPositionById
+getPositionPnlConfigs
+getOrders
+getOrderDetail
+getExecutionDetail
+getOrderHistory
+getCorporateActionHistory
+getPpse
+getListCareBy
+```
+
+Examples:
+
+```java
+client.getAccounts();
+
+client.getBalances("account-no");
+
+client.getLoanPackages(
+        "account-no",
+        "STOCK",
+        "FPT"
+);
+
+client.getOrders(
+        "account-no",
+        "STOCK",
+        "NORMAL",
+        1,
+        50
+);
+
+client.getOrderHistory(
+        "account-no",
+        "STOCK",
+        "2026-09-01",
+        "2026-09-19",
+        100,
+        1
+);
+```
+
+Methods that accept a Python per-request `version` override preserve that option in Java.
+
+## Trading-token and write APIs
+
+The remaining public Python REST endpoint wrappers are ported as well:
+
+```text
+postPositionPnlConfigs
+sendEmailOtp
+createTradingToken
+postOrder
+replaceOrder
+putOrder
+cancelOrder
+closePosition
+```
+
+`replaceOrder` is the preferred Java name; `putOrder` is retained as a Python-compatible alias.
+
+Write APIs accept the request body as an object/map and serialize it with Jackson. Endpoints that require it send the exact `trading-token` header used by Python.
+
+Example request construction:
+
+```java
+Map<String, Object> payload = new LinkedHashMap<>();
+payload.put("field", "value");
+
+DnseRestResponse preview = client.postOrder(
+        "account-no",
+        "STOCK",
+        payload,
+        "trading-token",
+        "NORMAL",
+        null,
+        true
+);
+```
+
+The last argument above is `dryRun=true`, so no order is sent; it only builds the signed request preview.
+
 ## REST + WebSocket all-symbol flow
 
 The REST client can now supply the instrument source for an application that wants to subscribe the WebSocket SDK to the market universe:
@@ -325,16 +416,8 @@ Market Data path/query parity
 MockWebServer transport behavior
 ```
 
-## Next REST milestones
+## Remaining REST work
 
-Not yet ported in this milestone:
+All public endpoint methods currently present in `python/dnse/api/client.py` now have Java equivalents.
 
-```text
-Account/read APIs
-Trading-token / OTP APIs
-Order create/replace/cancel APIs
-Position/PnL write APIs
-Typed REST response DTOs
-```
-
-Those can be added on top of the same REST signing/transport core.
+The main optional follow-up is a typed DTO layer for REST responses. The current raw `statusCode + body` response is intentionally retained for Python parity and to keep endpoint conversion independent from response-schema assumptions.
