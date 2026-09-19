@@ -3,6 +3,7 @@ package vn.dnse.openapi.rest.typed;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,6 +61,6 @@ public record InstrumentListResponse(
         LinkedHashMap<String, List<String>> result = new LinkedHashMap<>();
         grouped.forEach((board, symbols) ->
                 result.put(board, List.copyOf(new ArrayList<>(symbols))));
-        return Map.copyOf(result);
+        return Collections.unmodifiableMap(result);
     }
 }
