@@ -107,6 +107,55 @@ class DnseMarketDataApiTest {
     }
 
     @Test
+    void groupsTypedInstrumentsByBoardForWebSocketSubscription() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""
+                            {
+                              "items": [
+                                {"symbol":"FPT","boardId":"G1","securityStatus":"OPEN"},
+                                {"symbol":"HPG","boardId":"G1","securityStatus":"OPEN"},
+                                {"symbol":"FPT","boardId":"G1","securityStatus":"OPEN"},
+                                {"symbol":"VCB","boardId":"G3","securityStatus":"HALT"},
+                                {"symbol":"","boardId":"G1"},
+                                {"symbol":"SSI"}
+                              ]
+                            }
+                            """));
+            server.start();
+
+            try (DnseMarketDataApi api = new DnseMarketDataApi(config(server))) {
+                InstrumentListResponse result = api.getInstruments(
+                        null, null, null, null, 100, 1
+                );
+
+                assertEquals(
+                        java.util.List.of("FPT", "HPG"),
+                        result.symbolsByBoard().get("G1")
+                );
+                assertEquals(
+                        java.util.List.of("VCB"),
+                        result.symbolsByBoard().get("G3")
+                );
+
+                assertEquals(
+                        java.util.List.of("FPT", "HPG"),
+                        result.symbolsByBoard(instrument ->
+                                !"HALT".equals(instrument.securityStatus()))
+                                .get("G1")
+                );
+                assertEquals(
+                        1,
+                        result.symbolsByBoard(instrument ->
+                                !"HALT".equals(instrument.securityStatus()))
+                                .size()
+                );
+            }
+        }
+    }
+
+    @Test
     void preservesRawHttpErrorInTypedException() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
