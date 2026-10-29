@@ -93,8 +93,38 @@ public final class MessageMapper {
     private static Ohlc ohlc(JsonNode d,long r){ return new Ohlc(text(d,"symbol"),text(d,"resolution"),decimal(d,"open"),decimal(d,"high"),decimal(d,"low"),decimal(d,"close"),number(d,"volume"),number(d,"time"),number(d,"lastUpdated"),text(d,"type"),r); }
     private static SecurityDefinition securityDefinition(JsonNode d,long r){ return new SecurityDefinition(text(d,"marketId"),text(d,"boardId"),text(d,"symbol"),text(d,"isin"),text(d,"productGrpId"),text(d,"securityGroupId"),decimal(d,"basicPrice"),decimal(d,"ceilingPrice"),decimal(d,"floorPrice"),number(d,"openInterestQuantity"),text(d,"securityStatus"),text(d,"symbolAdminStatusCode"),text(d,"symbolTradingMethodStatusCode"),text(d,"symbolTradingSanctionStatusCode"),timestamp(d.get("finalTradeDate")),timestamp(d.get("listingDate")),timestamp(d.get("time")),r); }
     private static ForeignInvestor foreignInvestor(JsonNode d,long r){ return new ForeignInvestor(text(d,"marketId"),text(d,"boardId"),text(d,"tradingSessionId"),text(d,"symbol"),text(d,"transactTime"),text(d,"foreignInvestorTypeCode"),number(d,"sellVolume"),number(d,"sellTradedAmount"),number(d,"buyVolume"),number(d,"buyTradedAmount"),number(d,"totalSellVolume"),number(d,"totalSellTradedAmount"),number(d,"totalBuyVolume"),number(d,"totalBuyTradedAmount"),number(d,"foreignerOrderLimitQuantity"),number(d,"foreignerBuyPossibleQuantity"),r); }
-    private static MarketIndex marketIndex(JsonNode d,long r){ return new MarketIndex(text(d,"indexName"),decimal(d,"changedRatio"),decimal(d,"changedValue"),number(d,"fluctuationSteadinessIssueCount"),number(d,"fluctuationDownIssueCount"),number(d,"fluctuationUpIssueCount"),number(d,"fluctuationLowerLimitIssueCount"),number(d,"fluctuationUpperLimitIssueCount"),number(d,"fluctuationDownIssueVolume"),number(d,"fluctuationUpIssueVolume"),number(d,"fluctuationSteadinessIssueVolume"),text(d,"currencyCode"),text(d,"indexTypeCode"),decimal(d,"lowestValueIndexes"),decimal(d,"highestValueIndexes"),decimal(d,"priorValueIndexes"),decimal(d,"valueIndexes"),decimal(d,"contauctAccTrdVal"),number(d,"contauctAccTrdVol"),decimal(d,"blkTrdAccTrdVal"),number(d,"blkTrdAccTrdVol"),decimal(d,"grossTradeAmount"),number(d,"totalVolumeTraded"),(int)number(d,"marketIndexClass"),(int)number(d,"marketId"),(int)number(d,"tradingSessionId"),timestamp(d.get("transactTime")),r); }
-    private static EstimatedMarketIndex estimatedMarketIndex(JsonNode d,long r){ return new EstimatedMarketIndex(text(d,"indexName"),decimal(d,"changedRatio"),decimal(d,"changedValue"),decimal(d,"fluctuationSteadinessIssueCount"),decimal(d,"fluctuationDownIssueCount"),decimal(d,"fluctuationUpIssueCount"),decimal(d,"valueIndexes"),decimal(d,"grossTradeAmount"),decimal(d,"totalVolumeTraded"),timestamp(d.get("time")),r); }
+    private static MarketIndex marketIndex(JsonNode d, long r) {
+        return new MarketIndex(
+                text(d, "indexName"),
+                doubleVal(d, "changedRatio"),
+                doubleVal(d, "changedValue"),
+                numberNullable(d, "fluctuationSteadinessIssueCount"),
+                numberNullable(d, "fluctuationDownIssueCount"),
+                numberNullable(d, "fluctuationUpIssueCount"),
+                numberNullable(d, "fluctuationLowerLimitIssueCount"),
+                numberNullable(d, "fluctuationUpperLimitIssueCount"),
+                numberNullable(d, "fluctuationDownIssueVolume"),
+                numberNullable(d, "fluctuationUpIssueVolume"),
+                numberNullable(d, "fluctuationSteadinessIssueVolume"),
+                text(d, "currencyCode"),
+                text(d, "indexTypeCode"),
+                doubleVal(d, "lowestValueIndexes"),
+                doubleVal(d, "highestValueIndexes"),
+                doubleVal(d, "priorValueIndexes"),
+                doubleVal(d, "valueIndexes"),
+                doubleVal(d, "contauctAccTrdVal"),
+                numberNullable(d, "contauctAccTrdVol"),
+                doubleVal(d, "blkTrdAccTrdVal"),
+                numberNullable(d, "blkTrdAccTrdVol"),
+                doubleVal(d, "grossTradeAmount"),
+                numberNullable(d, "totalVolumeTraded"),
+                text(d, "marketIndexClass"),
+                text(d, "marketId"),
+                text(d, "tradingSessionId"),
+                parseTransactTime(d.get("transactTime")),
+                r
+        );
+    }    private static EstimatedMarketIndex estimatedMarketIndex(JsonNode d,long r){ return new EstimatedMarketIndex(text(d,"indexName"),decimal(d,"changedRatio"),decimal(d,"changedValue"),decimal(d,"fluctuationSteadinessIssueCount"),decimal(d,"fluctuationDownIssueCount"),decimal(d,"fluctuationUpIssueCount"),decimal(d,"valueIndexes"),decimal(d,"grossTradeAmount"),decimal(d,"totalVolumeTraded"),timestamp(d.get("time")),r); }
     private static IndexInfluence indexInfluence(JsonNode d,long r){ List<IndexInfluenceItem> items=new ArrayList<>(); JsonNode a=d.has("Data")?d.get("Data"):d.get("data"); if(a!=null&&a.isArray()) for(JsonNode i:a) items.add(new IndexInfluenceItem(timestamp(i.get("time")),text(i,"symbol"),decimal(i,"influence"),decimal(i,"influenceRatio"),decimal(i,"proportion"),decimal(i,"changeRatio"),decimal(i,"changeValue"),decimal(i,"price"),decimal(i,"grossTradeAmount"),decimal(i,"totalVolumeTraded"))); return new IndexInfluence(text(d,"index_name"),List.copyOf(items),r); }
     private static Order order(JsonNode d,long r){ return new Order(text(d,"id"),text(d,"side"),text(d,"accountNo"),text(d,"symbol"),decimal(d,"price"),decimal(d,"priceSecure"),decimal(d,"averagePrice"),number(d,"quantity"),number(d,"fillQuantity"),number(d,"canceledQuantity"),number(d,"leaveQuantity"),text(d,"orderType"),text(d,"orderStatus"),number(d,"loanPackageId"),text(d,"marketType"),text(d,"transDate"),text(d,"createdDate"),text(d,"modifiedDate"),r); }
     private static Position position(JsonNode d,long r){ return new Position(number(d,"id"),text(d,"accountNo"),text(d,"symbol"),text(d,"status"),number(d,"loanPackageId"),text(d,"side"),number(d,"accumulateQuantity"),number(d,"tradeQuantity"),number(d,"closedQuantity"),decimal(d,"costPrice"),decimal(d,"marketPrice"),decimal(d,"breakEvenPrice"),number(d,"openQuantity"),number(d,"overNightQuantity"),decimal(d,"averageClosePrice"),text(d,"marketType"),text(d,"createdDate"),text(d,"modifiedDate"),r); }
@@ -116,9 +146,34 @@ public final class MessageMapper {
     /** Reads price/money values without binary floating-point loss. */
     private static BigDecimal decimal(JsonNode n,String f){ JsonNode v=n==null?null:n.get(f); if(v==null||v.isNull()) return BigDecimal.ZERO; try{return v.decimalValue();}catch(Exception e){try{return new BigDecimal(v.asText("0"));}catch(Exception ignored){return BigDecimal.ZERO;}} }
 
+    /** Reads floating-point values as primitive double. */
+    private static double doubleVal(JsonNode n, String f){ JsonNode v=n==null?null:n.get(f); if(v==null||v.isNull()) return 0.0; if(v.isNumber()) return v.doubleValue(); try{return Double.parseDouble(v.asText("0"));}catch(Exception e){return 0.0;} }
+
     /**
      * Normalizes the timestamp shapes accepted by the Python SDK into the Java model's current string form.
      * Protobuf-like objects are preserved as {@code seconds:nanos}; textual/numeric values remain textual.
      */
     private static String timestamp(JsonNode v){ if(v==null||v.isNull())return null; if(v.isTextual()||v.isNumber())return v.asText(); if(v.isObject()){JsonNode s=v.has("Seconds")?v.get("Seconds"):v.get("seconds");JsonNode n=v.has("Nanos")?v.get("Nanos"):v.get("nanos");return(s==null?"0":s.asText())+":"+(n==null?"0":n.asText());} return v.toString(); }
+
+    /** Reads a nullable integer-like JSON/string value to support null values safely. */
+    private static Long numberNullable(JsonNode n, String f) {
+        JsonNode v = n == null ? null : n.get(f);
+        if (v == null || v.isNull()) return null;
+        if (v.isNumber()) return v.asLong();
+        try { return Long.valueOf(v.asText()); } catch (Exception e) { return null; }
+    }
+
+    /** Parses the TransactTime JSON object into the nested record. */
+    private static MarketIndex.TransactTime parseTransactTime(JsonNode v) {
+        if (v == null || v.isNull() || !v.isObject()) return null;
+
+        JsonNode s = v.has("Seconds") ? v.get("Seconds") : v.get("seconds");
+        JsonNode n = v.has("Nanos") ? v.get("Nanos") : v.get("nanos");
+
+        Long seconds = (s == null || s.isNull()) ? null : s.asLong();
+        Integer nanos = (n == null || n.isNull()) ? null : n.asInt();
+
+        return new MarketIndex.TransactTime(seconds, nanos);
+    }
+
 }
